@@ -12,14 +12,29 @@
 
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
+const dbPath = process.env.DATABASE_PATH || path.join(__dirname, 'examguard.db');
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
 
-const dbPath = path.join(__dirname, 'examguard.db');
 const db = new Database(dbPath);
 
-// WAL mode for high write throughput (multiple concurrent writers)
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+// WAL mode for high write throughput, fallback if shared memory restricted
+try {
+  db.pragma('journal_mode = WAL');
+} catch (e) {
+  console.warn('[DB] Journal mode WAL unavailable, using default DELETE:', e.message);
+  db.pragma('journal_mode = DELETE');
+}
+
+try {
+  db.pragma('foreign_keys = ON');
+} catch (e) {
+  // ignore
+}
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 function initSchema() {
