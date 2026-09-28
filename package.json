@@ -1,0 +1,41 @@
+{
+  "name": "examguard",
+  "version": "1.0.0",
+  "description": "ExamGuard – Resilience and Trust Platform for Large-Scale Computer-Based Exams (MVP)",
+  "main": "server/index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "cd client && npm install && npm run build",
+    "start": "node server/index.js",
+    "dev": "node dev.js",
+    "seed": "node server/seed.js",
+    "seed:reset": "node server/seed.js",
+    "reset": "node server/seed.js",
+    "simulator": "node simulator/run.js",
+    "demo": "node demo/run.js",
+    "client": "cd client && npm run dev",
+    "client:install": "cd client && npm install"
+  },
+  "keywords": [
+    "exam",
+    "resilience",
+    "sentinel",
+    "triage",
+    "trustledger"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4"
+  },
+  "devDependencies": {
+    "puppeteer": "^25.12.0"
+  }
+}

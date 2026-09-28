@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: examguard
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: PORT
+        value: 10000

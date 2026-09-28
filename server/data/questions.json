@@ -1,0 +1,112 @@
+[
+  {
+    "id": 1,
+    "text": "Which fundamental data structure operates strictly on a Last-In, First-Out (LIFO) order?",
+    "options": {
+      "A": "Queue",
+      "B": "Stack",
+      "C": "Binary Search Tree",
+      "D": "Hash Map"
+    },
+    "category": "Data Structures"
+  },
+  {
+    "id": 2,
+    "text": "What is the worst-case time complexity of binary search on a sorted array of N elements?",
+    "options": {
+      "A": "O(1)",
+      "B": "O(log N)",
+      "C": "O(N)",
+      "D": "O(N log N)"
+    },
+    "category": "Algorithms"
+  },
+  {
+    "id": 3,
+    "text": "Which cryptographic hash algorithm outputs a fixed-length 256-bit digest?",
+    "options": {
+      "A": "MD5",
+      "B": "SHA-1",
+      "C": "SHA-256",
+      "D": "Blowfish"
+    },
+    "category": "Cryptography"
+  },
+  {
+    "id": 4,
+    "text": "In relational database theory, what does the 'I' represent in the ACID guarantees?",
+    "options": {
+      "A": "Integrity",
+      "B": "Isolation",
+      "C": "Indexing",
+      "D": "Idempotency"
+    },
+    "category": "Databases"
+  },
+  {
+    "id": 5,
+    "text": "Which network protocol guarantees ordered, reliable, and error-checked byte stream delivery?",
+    "options": {
+      "A": "UDP",
+      "B": "TCP",
+      "C": "ICMP",
+      "D": "ARP"
+    },
+    "category": "Networking"
+  },
+  {
+    "id": 6,
+    "text": "In distributed consensus protocols like Raft, what is the primary role of the elected Leader node?",
+    "options": {
+      "A": "Direct cryptographic key generation",
+      "B": "Log entry replication and transaction commit coordination",
+      "C": "Workstation battery voltage balancing",
+      "D": "Physical network cable diagnostics"
+    },
+    "category": "Distributed Systems"
+  },
+  {
+    "id": 7,
+    "text": "What type of SQLite journal mode allows multiple readers while a writer commits asynchronously?",
+    "options": {
+      "A": "DELETE",
+      "B": "MEMORY",
+      "C": "WAL (Write-Ahead Logging)",
+      "D": "OFF"
+    },
+    "category": "Databases"
+  },
+  {
+    "id": 8,
+    "text": "In fault-tolerant system design, what does 'Zero Data Loss' checkpointing guarantee?",
+    "options": {
+      "A": "Client memory is never garbage collected",
+      "B": "Every user interaction/answer is confirmed on persistent server storage prior to ack",
+      "C": "Servers never require power supplies",
+      "D": "Network latency is always 0 ms"
+    },
+    "category": "Resilience"
+  },
+  {
+    "id": 9,
+    "text": "Which WebSocket event is emitted by Socket.IO when a transport connection is severed?",
+    "options": {
+      "A": "disconnect",
+      "B": "terminate",
+      "C": "socket:halt",
+      "D": "session:kill"
+    },
+    "category": "Web Protocols"
+  },
+  {
+    "id": 10,
+    "text": "In a hash-chained ledger, what occurs if an attacker modifies the payload of block #50 in a 100-block chain?",
+    "options": {
+      "A": "The change is automatically accepted without detection",
+      "B": "The hash of block #50 and all subsequent previous_hash pointers fail validation",
+      "C": "The database hardware immediately shuts down",
+      "D": "The network switches from TCP to UDP"
+    },
+    "category": "Cryptography"
+  }
+]
