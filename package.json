@@ -8,7 +8,6 @@
   },
   "scripts": {
     "build": "npm install && cd client && npm install && npm run build",
-    "prestart": "npm install",
     "start": "node server/index.js",
     "dev": "node dev.js",
     "seed": "node server/seed.js",

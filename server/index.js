@@ -534,7 +534,7 @@ if (fs.existsSync(clientDistPath)) {
 
 // ── 9. Start Server ───────────────────────────────────────────────────────────
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n============================================================`);
   console.log(`[SERVER] ExamGuard Server live on port ${PORT}`);
   console.log(`[SERVER] Health check: http://localhost:${PORT}/health`);
