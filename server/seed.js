@@ -4,7 +4,7 @@
  * with initial active session states.
  */
 
-const { db, appendLedgerEvent } = require('./db');
+const { db, initDatabase, appendLedgerEvent } = require('./db');
 
 const FIRST_NAMES = [
   'Aarav', 'Aditi', 'Ananya', 'Aryan', 'Deepak', 'Diya', 'Ishaan', 'Kavya',
@@ -105,7 +105,7 @@ function seedDatabase() {
 
 // Allow direct CLI execution: node server/seed.js
 if (require.main === module) {
-  seedDatabase();
+  initDatabase().then(() => seedDatabase()).catch(console.error);
 }
 
 module.exports = { seedDatabase };

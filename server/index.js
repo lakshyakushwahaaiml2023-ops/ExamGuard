@@ -18,7 +18,7 @@ const express = require('express');
 const cors = require('cors');
 const { Server } = require('socket.io');
 
-const { db } = require('./db');
+const { db, initDatabase } = require('./db');
 const { seedDatabase } = require('./seed');
 const TriageAI = require('./modules/triage');
 const ContinuityEngine = require('./modules/continuity');
@@ -53,18 +53,7 @@ const io = new Server(server, {
   }
 });
 
-// ── 1. Auto-Seed SQLite Database if Empty ────────────────────────────────────
-try {
-  const countRow = db.prepare('SELECT count(*) as count FROM centres').get();
-  if (!countRow || countRow.count === 0) {
-    console.log('[SERVER] Database is empty. Running automatic seed on boot...');
-    seedDatabase();
-  } else {
-    console.log(`[SERVER] Database verified: ${countRow.count} centres registered.`);
-  }
-} catch (err) {
-  console.warn('[SERVER] Auto-seed check error:', err.message);
-}
+
 
 // In-memory cache of latest telemetry per centre
 const latestTelemetry = new Map();
@@ -118,7 +107,7 @@ const embeddedSimulator = new EmbeddedSimulator({
   onTelemetry: handleTelemetry,
   onCandidateAnswer: handleCandidateAnswer
 });
-embeddedSimulator.start();
+
 
 // Initialize Scenario Runner for automated demos
 const scenarioRunner = new ScenarioRunner({
@@ -533,13 +522,37 @@ if (fs.existsSync(clientDistPath)) {
 }
 
 // ── 9. Start Server ───────────────────────────────────────────────────────────
+async function startServer() {
+  await initDatabase();
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n============================================================`);
-  console.log(`[SERVER] ExamGuard Server live on port ${PORT}`);
-  console.log(`[SERVER] Health check: http://localhost:${PORT}/health`);
-  console.log(`[SERVER] Web Console: http://localhost:${PORT}/admin`);
-  console.log(`============================================================\n`);
+  // Auto-seed if empty
+  try {
+    const countRow = db.prepare('SELECT count(*) as count FROM centres').get();
+    if (!countRow || countRow.count === 0) {
+      console.log('[SERVER] Database is empty. Running automatic seed on boot...');
+      seedDatabase();
+    } else {
+      console.log(`[SERVER] Database verified: ${countRow.count} centres registered.`);
+    }
+  } catch (err) {
+    console.warn('[SERVER] Auto-seed check error:', err.message);
+  }
+
+  // Start embedded simulator
+  embeddedSimulator.start();
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n============================================================`);
+    console.log(`[SERVER] ExamGuard Server live on port ${PORT}`);
+    console.log(`[SERVER] Health check: http://localhost:${PORT}/health`);
+    console.log(`[SERVER] Web Console: http://localhost:${PORT}/admin`);
+    console.log(`============================================================\n`);
+  });
+}
+
+startServer().catch(err => {
+  console.error('[SERVER] Fatal startup error:', err);
+  process.exit(1);
 });
 
 module.exports = { app, server, io, triageAI, continuityEngine, embeddedSimulator, scenarioRunner };
