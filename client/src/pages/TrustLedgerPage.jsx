@@ -1,34 +1,27 @@
 /**
- * TrustLedgerPage — /ledger Route
+ * TrustLedgerPage — /ledger Route (LeetCode Themed Audit Explorer)
  * ═══════════════════════════════════════════════════════════════════════════
- * Visual explorer for ExamGuard's SHA-256 hash-chained immutable audit log.
- *
- * Features:
- *   - Live event stream (candidate login, answer submission, incident opened/resolved,
- *     admin acknowledge, decision made).
- *   - Big "Verify Integrity" button that recalculates all SHA-256 hashes:
- *       • Green "Chain intact" badge if all blocks verify
- *       • Red "Tampering detected at event #N" alert if any byte was altered
- *   - "Tamper Demo" button to secretly alter a record in SQLite directly to demo
- *     cryptographic tampering detection.
- *   - "Repair Chain" button to restore cryptographic validity.
- *   - Hash previews with copy-to-clipboard and full payload inspection modal.
+ * LeetCode styled cryptographic hash-chain inspection interface with
+ * dark/light mode toggle.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import socket from '../socket';
+import LeetCodeNavbar from '../components/LeetCodeNavbar.jsx';
 
 const API = '';
 
 const TYPE_BADGE_STYLE = {
-  'genesis':              'bg-purple-500/20 text-purple-300 border-purple-500/40',
-  'candidate login':      'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
-  'answer submission':    'bg-blue-500/20 text-blue-300 border-blue-500/40',
-  'incident created':     'bg-rose-500/20 text-rose-300 border-rose-500/40',
-  'incident resolved':    'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-  'admin acknowledge':    'bg-indigo-500/20 text-indigo-300 border-indigo-500/40',
-  'decision made':        'bg-amber-500/20 text-amber-300 border-amber-500/40'
+  'candidate login':      'bg-blue-500/15 text-blue-400 border-blue-500/30',
+  'answer submission':    'bg-[#00b8a3]/15 text-[#00b8a3] border-[#00b8a3]/30',
+  'incident created':     'bg-[#ff375f]/15 text-[#ff375f] border-[#ff375f]/30',
+  'incident resolved':    'bg-[#00b8a3]/15 text-[#00b8a3] border-[#00b8a3]/30',
+  'failover initiated':   'bg-[#ffa116]/15 text-[#ffa116] border-[#ffa116]/30',
+  'failover backup selected': 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30',
+  'failover completed':   'bg-[#00b8a3]/15 text-[#00b8a3] border-[#00b8a3]/30',
+  'admin acknowledge':    'bg-indigo-500/15 text-indigo-400 border-indigo-500/30',
+  'decision made':        'bg-[#ffa116]/15 text-[#ffa116] border-[#ffa116]/30'
 };
 
 function formatTimestamp(ts) {
@@ -53,13 +46,12 @@ export default function TrustLedgerPage() {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [copiedHash, setCopiedHash] = useState(null);
 
-  // Fetch initial ledger events
   const loadLedger = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch(`${API}/api/ledger?limit=150`);
       const data = await res.json();
-      setEvents(data);
+      setEvents(data.events || []);
     } catch (err) {
       console.error('Failed to load ledger events:', err);
     } finally {
@@ -69,47 +61,38 @@ export default function TrustLedgerPage() {
 
   useEffect(() => {
     loadLedger();
-
-    // Listen for live new blocks appended to the chain
-    const onNewBlock = (newEvent) => {
-      setEvents(prev => [newEvent, ...prev.slice(0, 199)]);
-      // Invalidate current verification badge since new blocks arrived
-      setVerificationResult(prev => prev ? { ...prev, isStale: true } : null);
+    const onBlockAppended = (newEvent) => {
+      setEvents(prev => [newEvent, ...prev.filter(e => e.id !== newEvent.id)]);
     };
-
-    socket.on('ledger:new_event', onNewBlock);
-
+    socket.on('ledger:block', onBlockAppended);
     return () => {
-      socket.off('ledger:new_event', onNewBlock);
+      socket.off('ledger:block', onBlockAppended);
     };
   }, [loadLedger]);
 
-  // Verify chain integrity
   const handleVerify = async () => {
     try {
       setVerifying(true);
-      setTamperNotice(null);
+      setVerificationResult(null);
       const res = await fetch(`${API}/api/ledger/verify`);
       const data = await res.json();
       setVerificationResult(data);
     } catch (err) {
-      setVerificationResult({ valid: false, message: 'Verification request failed: ' + err.message });
+      setVerificationResult({ valid: false, reason: 'Network verification failed: ' + err.message });
     } finally {
       setVerifying(false);
     }
   };
 
-  // Tamper demo: secretly modifies an event in DB
   const handleTamperDemo = async () => {
     try {
       setTampering(true);
       const res = await fetch(`${API}/api/ledger/tamper-demo`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        setTamperNotice(`⚠️ Attack Simulated: Event #${data.tamperedEventId} payload was secretly modified in SQLite! Click "Verify Integrity" to detect it.`);
+        setTamperNotice(`Tamper Demo Executed: Past event #${data.tamperedEventId} modified secretly in DB.`);
         await loadLedger();
-        // Clear previous verification result so user must re-verify
-        setVerificationResult(null);
+        await handleVerify();
       }
     } catch (err) {
       setTamperNotice('Tamper demo failed: ' + err.message);
@@ -118,7 +101,6 @@ export default function TrustLedgerPage() {
     }
   };
 
-  // Repair chain helper
   const handleRepair = async () => {
     try {
       setTampering(true);
@@ -142,175 +124,113 @@ export default function TrustLedgerPage() {
     setTimeout(() => setCopiedHash(null), 1500);
   };
 
-  // Filtered events
   const filteredEvents = events.filter(e => {
     const matchesType = filterType === 'ALL' || (e.type || '').toLowerCase() === filterType.toLowerCase();
     const query = searchQuery.toLowerCase();
-    const matchesSearch = !query ||
+    return matchesType && (!query ||
       String(e.id).includes(query) ||
       (e.type || '').toLowerCase().includes(query) ||
       (e.centre_id || '').toLowerCase().includes(query) ||
       (e.hash || '').toLowerCase().includes(query) ||
-      (e.payload || '').toLowerCase().includes(query);
-    return matchesType && matchesSearch;
+      (e.payload || '').toLowerCase().includes(query));
   });
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* ── Top Bar ─────────────────────────────────────────────────────────── */}
-      <header className="border-b border-slate-800/80 bg-slate-900/90 backdrop-blur sticky top-0 z-20 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          {/* Logo & Navigation */}
-          <div className="flex items-center gap-4">
-            <div className="w-9 h-9 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center">
-              <span className="text-lg">⛓️</span>
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-black text-white tracking-tight">TrustLedger</h1>
-                <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                  SHA-256 HASH CHAIN
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Cryptographic tamper-evident audit trail for computer-based examination integrity
-              </p>
-            </div>
-
-            {/* Navigation Tabs */}
-            <div className="hidden lg:flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 ml-4 text-xs font-semibold">
-              <Link to="/admin" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition">
-                ← Sentinel Grid
-              </Link>
-              <span className="px-3 py-1.5 rounded-lg bg-purple-600/80 text-white shadow-sm">
-                TrustLedger Explorer
-              </span>
-              <Link to="/decisions" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-purple-300 hover:bg-slate-800 transition">
-                ⚖️ Decision Support
-              </Link>
-            </div>
-          </div>
-
-          {/* Action Buttons: Verify & Tamper Demo */}
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* Big Verify Integrity Button */}
+    <div className="min-h-screen flex flex-col select-none transition-colors duration-150 dark:bg-[#1a1a1a] bg-[#f7f7f8] dark:text-[#eff1f6] text-[#262626]">
+      {/* ── Top LeetCode Navbar ──────────────────────────────────────────────── */}
+      <LeetCodeNavbar
+        extraRight={
+          <div className="flex items-center gap-2">
             <button
               onClick={handleVerify}
               disabled={verifying}
-              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-md active:scale-95 border ${
-                verifying
-                  ? 'bg-slate-800 border-slate-700 text-slate-400 cursor-not-allowed'
-                  : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400/40 shadow-emerald-950/40'
-              }`}
+              className="px-3 py-1 rounded-md text-xs font-semibold text-white bg-[#00b8a3] hover:bg-[#00a390] transition shadow-2xs flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
             >
-              <span className="text-sm">🛡️</span>
-              <span>{verifying ? 'Recalculating SHA-256...' : 'Verify Integrity'}</span>
+              <span>🛡️</span>
+              <span>{verifying ? 'Verifying...' : 'Verify Integrity'}</span>
             </button>
-
-            {/* Tamper Demo Button */}
             <button
               onClick={handleTamperDemo}
               disabled={tampering}
-              className="px-3.5 py-2 rounded-xl font-bold text-xs bg-rose-950/80 hover:bg-rose-900/90 text-rose-200 border border-rose-700/50 transition-all flex items-center gap-1.5 active:scale-95"
-              title="Secretly modifies one past record's payload in SQLite to demonstrate tamper detection"
+              className="px-2.5 py-1 rounded-md text-xs font-medium border transition active:scale-95 disabled:opacity-50
+                dark:bg-[#ff375f]/15 dark:border-[#ff375f]/40 dark:text-[#ff375f] dark:hover:bg-[#ff375f]/25
+                bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
+              title="Secretly tamper with SQLite record to demonstrate detection"
             >
-              <span>🧪</span>
+              <span>🔨</span>
               <span>Tamper Demo</span>
             </button>
-
-            {/* Repair Chain Button */}
             <button
               onClick={handleRepair}
               disabled={tampering}
-              className="px-3 py-2 rounded-xl text-xs bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700 transition-all flex items-center gap-1"
-              title="Recalculate hashes from genesis to restore valid chain"
+              className="px-2.5 py-1 rounded-md text-xs font-medium border transition active:scale-95 disabled:opacity-50
+                dark:bg-[#333333] dark:border-[#404040] dark:text-gray-300 dark:hover:bg-[#3e3e3e]
+                bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
             >
               <span>🔧</span>
-              <span>Repair Chain</span>
+              <span>Repair</span>
             </button>
-
-            {/* Live Block Count Pill */}
-            <div className="bg-slate-950 px-3 py-2 rounded-xl border border-slate-800 text-xs font-mono text-slate-300">
-              Blocks: <span className="font-bold text-purple-400">{events.length}</span>
-            </div>
           </div>
-        </div>
-      </header>
+        }
+      />
 
-      {/* ── Main Content ────────────────────────────────────────────────────── */}
-      <main className="max-w-7xl mx-auto w-full px-6 py-6 flex-1 flex flex-col gap-5">
-        {/* Verification Result Banner */}
+      {/* ── Main Container ──────────────────────────────────────────────────── */}
+      <div className="max-w-[1600px] mx-auto w-full px-4 py-4 flex flex-col gap-4 flex-1">
+        
+        {/* Verification Result Banner (LeetCode Alert style) */}
         {verificationResult && (
-          <div
-            className={`p-4 rounded-2xl border transition-all duration-300 ${
-              verificationResult.valid
-                ? 'bg-emerald-950/50 border-emerald-600/70 text-emerald-200 shadow-lg shadow-emerald-950/30'
-                : 'bg-rose-950/60 border-rose-600/80 text-rose-100 shadow-lg shadow-rose-950/40 animate-pulse'
-            }`}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0 border ${
-                    verificationResult.valid
-                      ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
-                      : 'bg-rose-500/20 border-rose-500/40 text-rose-400'
-                  }`}
-                >
-                  {verificationResult.valid ? '✓' : '⚠️'}
-                </div>
+          <div className={`p-3.5 rounded-lg border transition-colors shadow-xs animate-fadeIn ${
+            verificationResult.valid
+              ? 'dark:bg-[#00b8a3]/10 dark:border-[#00b8a3]/40 dark:text-[#00b8a3] bg-emerald-50 border-emerald-300 text-emerald-900'
+              : 'dark:bg-[#ff375f]/10 dark:border-[#ff375f]/40 dark:text-[#ff375f] bg-rose-50 border-rose-300 text-rose-900'
+          }`}>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-xl font-bold">{verificationResult.valid ? '✓' : '⚠️'}</span>
                 <div>
-                  <h3 className="text-base font-bold tracking-tight">
-                    {verificationResult.valid
-                      ? 'Chain intact'
-                      : `Tampering detected at event #${verificationResult.brokenEventId}`}
+                  <h3 className="text-xs font-bold uppercase tracking-wider">
+                    {verificationResult.valid ? 'Cryptographic Hash Chain Intact' : `Tampering Detected at Block #${verificationResult.brokenEventId}`}
                   </h3>
-                  <p className="text-xs opacity-90 mt-0.5 font-mono">
+                  <p className="text-xs font-mono opacity-90 mt-0.5">
                     {verificationResult.valid
-                      ? `All ${verificationResult.totalEvents} blocks verified against SHA-256(prev_hash + timestamp + type + payload). Zero tampering detected.`
-                      : `${verificationResult.reason || 'Cryptographic mismatch'}. Chain integrity broken at block #${verificationResult.brokenEventId}.`}
+                      ? `All ${verificationResult.totalEvents} blocks verified against SHA-256(prev_hash + timestamp + type + payload). Zero tampering.`
+                      : `${verificationResult.reason || 'Hash mismatch'}. Integrity broken at block #${verificationResult.brokenEventId}.`}
                   </p>
                 </div>
               </div>
-
-              <span
-                className={`text-xs font-black uppercase tracking-wider px-3 py-1 rounded-full border ${
-                  verificationResult.valid
-                    ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                    : 'bg-rose-500/30 border-rose-500/60 text-rose-200'
-                }`}
-              >
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                verificationResult.valid
+                  ? 'bg-[#00b8a3]/20 border-[#00b8a3]/40'
+                  : 'bg-[#ff375f]/20 border-[#ff375f]/40'
+              }`}>
                 {verificationResult.valid ? 'VERIFIED INTACT' : 'COMPROMISED'}
               </span>
             </div>
           </div>
         )}
 
-        {/* Tamper Notice Banner */}
+        {/* Tamper Notice */}
         {tamperNotice && (
-          <div className="p-3.5 rounded-xl bg-amber-950/50 border border-amber-600/50 text-amber-200 text-xs flex items-center justify-between gap-3">
+          <div className="p-3 rounded-lg border text-xs flex items-center justify-between gap-3 dark:bg-amber-950/20 dark:border-amber-700/50 dark:text-amber-300 bg-amber-50 border-amber-200 text-amber-900">
             <span>{tamperNotice}</span>
-            <button
-              onClick={() => setTamperNotice(null)}
-              className="text-amber-400 hover:text-white font-bold px-2 py-0.5"
-            >
-              ✕
-            </button>
+            <button onClick={() => setTamperNotice(null)} className="font-bold px-2">✕</button>
           </div>
         )}
 
-        {/* ── Table Toolbar & Search ────────────────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-          {/* Type Filter Buttons */}
+        {/* Toolbar & Filters (LeetCode Tag style) */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 rounded-lg border transition-colors shadow-xs
+          dark:bg-[#282828] dark:border-[#3e3e3e] bg-white border-gray-200">
+          
+          {/* Tag filters */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs">
-            {['ALL', 'candidate login', 'answer submission', 'incident created', 'incident resolved', 'admin acknowledge', 'decision made'].map(type => (
+            {['ALL', 'candidate login', 'answer submission', 'incident created', 'incident resolved', 'decision made'].map(type => (
               <button
                 key={type}
                 onClick={() => setFilterType(type)}
-                className={`px-2.5 py-1 rounded-lg font-medium transition whitespace-nowrap ${
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition whitespace-nowrap ${
                   filterType === type
-                    ? 'bg-purple-600 text-white font-bold'
-                    : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                    ? 'bg-[#ffa116] text-white font-semibold shadow-2xs'
+                    : 'dark:bg-[#202020] dark:border-[#383838] dark:text-gray-300 dark:hover:bg-[#2e2e2e] bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200 border'
                 }`}
               >
                 {type}
@@ -318,124 +238,80 @@ export default function TrustLedgerPage() {
             ))}
           </div>
 
-          {/* Search Box */}
-          <div className="relative min-w-[220px]">
+          {/* Search Input */}
+          <div className="relative min-w-[240px]">
             <input
               type="text"
-              placeholder="Search id, type, hash, payload..."
+              placeholder="Search id, type, hash..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 font-mono"
+              className="w-full rounded-md px-3 py-1.5 text-xs font-mono border transition focus:outline-none focus:border-[#ffa116]
+                dark:bg-[#202020] dark:border-[#383838] dark:text-gray-200 dark:placeholder-gray-500
+                bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-400"
             />
           </div>
         </div>
 
-        {/* ── Ledger Table ──────────────────────────────────────────────────── */}
-        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden flex-1 shadow-lg">
+        {/* ── Hash Chain Submissions Table (LeetCode exact table design) ──────── */}
+        <div className="rounded-lg border overflow-hidden flex-1 shadow-xs transition-colors
+          dark:bg-[#282828] dark:border-[#3e3e3e] bg-white border-gray-200">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-slate-800 bg-slate-900 text-slate-400 font-mono text-[11px] uppercase tracking-wider">
-                  <th className="py-3 px-4 w-16">Block #</th>
-                  <th className="py-3 px-4 w-32">Timestamp</th>
-                  <th className="py-3 px-4 w-36">Event Type</th>
-                  <th className="py-3 px-4 w-28">Centre</th>
-                  <th className="py-3 px-4">Payload Preview</th>
-                  <th className="py-3 px-4 w-36">Prev Hash</th>
-                  <th className="py-3 px-4 w-36">Block Hash</th>
-                  <th className="py-3 px-3 w-16 text-center">Inspect</th>
+                <tr className="border-b font-mono text-[11px] uppercase tracking-wider transition-colors
+                  dark:border-[#383838] dark:bg-[#222222] dark:text-gray-400
+                  bg-gray-50 border-gray-200 text-gray-500">
+                  <th className="py-2.5 px-3.5 w-16">Block #</th>
+                  <th className="py-2.5 px-3.5 w-32">Timestamp</th>
+                  <th className="py-2.5 px-3.5 w-36">Event Type</th>
+                  <th className="py-2.5 px-3.5 w-24">Centre</th>
+                  <th className="py-2.5 px-3.5">Payload Preview</th>
+                  <th className="py-2.5 px-3.5 w-32">Prev Hash</th>
+                  <th className="py-2.5 px-3.5 w-32">Block Hash</th>
+                  <th className="py-2.5 px-3 w-16 text-center">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono">
+              <tbody className="divide-y font-mono dark:divide-[#333333] divide-gray-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-500">
-                      Loading cryptographic hash chain...
+                    <td colSpan="8" className="py-12 text-center text-gray-400">
+                      Loading cryptographic blocks...
                     </td>
                   </tr>
                 ) : filteredEvents.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-500">
-                      No ledger events matching filters.
+                    <td colSpan="8" className="py-12 text-center text-gray-400">
+                      No blocks match the filter criteria.
                     </td>
                   </tr>
                 ) : (
-                  filteredEvents.map((ev) => {
-                    const isTampered = verificationResult && !verificationResult.valid && verificationResult.brokenEventId === ev.id;
-                    const badgeClass = TYPE_BADGE_STYLE[ev.type] || 'bg-slate-800 text-slate-300 border-slate-700';
-
+                  filteredEvents.map(evt => {
+                    const badgeClass = TYPE_BADGE_STYLE[evt.type] || 'bg-gray-500/10 text-gray-400 border-gray-500/20';
                     return (
-                      <tr
-                        key={ev.id}
-                        className={`transition-colors ${
-                          isTampered
-                            ? 'bg-rose-950/40 hover:bg-rose-900/50 border-l-4 border-rose-500'
-                            : 'hover:bg-slate-850/60'
-                        }`}
-                      >
-                        {/* Block ID */}
-                        <td className="py-2.5 px-4 font-bold text-slate-300">
-                          #{ev.id}
-                        </td>
-
-                        {/* Timestamp */}
-                        <td className="py-2.5 px-4 text-slate-400 whitespace-nowrap text-[11px]">
-                          {formatTimestamp(ev.timestamp)}
-                        </td>
-
-                        {/* Type Badge */}
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider ${badgeClass}`}>
-                            {ev.type}
+                      <tr key={evt.id} className="transition-colors dark:hover:bg-[#222222] hover:bg-gray-50">
+                        <td className="py-2.5 px-3.5 font-bold dark:text-white text-gray-900">#{evt.id}</td>
+                        <td className="py-2.5 px-3.5 text-[11px] dark:text-gray-400 text-gray-500">{formatTimestamp(evt.timestamp)}</td>
+                        <td className="py-2.5 px-3.5">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase ${badgeClass}`}>
+                            {evt.type}
                           </span>
                         </td>
-
-                        {/* Centre */}
-                        <td className="py-2.5 px-4 text-slate-300 whitespace-nowrap">
-                          {ev.centre_id || 'SYSTEM'}
+                        <td className="py-2.5 px-3.5 dark:text-gray-300 text-gray-700">{evt.centre_id || 'SYSTEM'}</td>
+                        <td className="py-2.5 px-3.5 font-mono text-[11px] dark:text-gray-300 text-gray-600 truncate max-w-xs">
+                          {typeof evt.payload === 'string' ? evt.payload : JSON.stringify(evt.payload)}
                         </td>
-
-                        {/* Payload Preview */}
-                        <td className="py-2.5 px-4 max-w-[280px] truncate text-slate-400 font-mono text-[11px]" title={ev.payload}>
-                          {ev.payload}
+                        <td className="py-2.5 px-3.5 font-mono text-[11px] dark:text-gray-400 text-gray-500">
+                          {evt.prev_hash ? `${evt.prev_hash.slice(0, 10)}...` : '0000000000...'}
                         </td>
-
-                        {/* Prev Hash */}
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          <button
-                            onClick={() => copyToClipboard(ev.prev_hash, `prev-${ev.id}`)}
-                            className="group flex items-center gap-1 text-[11px] text-slate-500 hover:text-purple-300 transition"
-                            title={ev.prev_hash}
-                          >
-                            <span>{ev.prev_hash?.substring(0, 10)}…</span>
-                            <span className="opacity-0 group-hover:opacity-100 text-[10px]">
-                              {copiedHash === `prev-${ev.id}` ? '✓' : '📋'}
-                            </span>
-                          </button>
+                        <td className="py-2.5 px-3.5 font-mono text-[11px] text-[#ffa116] font-semibold">
+                          {evt.hash ? `${evt.hash.slice(0, 10)}...` : '—'}
                         </td>
-
-                        {/* Current Hash */}
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          <button
-                            onClick={() => copyToClipboard(ev.hash, `hash-${ev.id}`)}
-                            className={`group flex items-center gap-1 text-[11px] font-bold transition ${
-                              isTampered ? 'text-rose-400 animate-pulse' : 'text-purple-400 hover:text-purple-300'
-                            }`}
-                            title={ev.hash}
-                          >
-                            <span>{ev.hash?.substring(0, 10)}…</span>
-                            <span className="opacity-0 group-hover:opacity-100 text-[10px]">
-                              {copiedHash === `hash-${ev.id}` ? '✓' : '📋'}
-                            </span>
-                          </button>
-                        </td>
-
-                        {/* Inspect Payload Button */}
                         <td className="py-2.5 px-3 text-center">
                           <button
-                            onClick={() => setSelectedEvent(ev)}
-                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] transition"
-                            title="Inspect complete payload"
+                            onClick={() => setSelectedEvent(evt)}
+                            className="px-2 py-0.5 rounded text-[11px] font-medium border transition
+                              dark:bg-[#333] dark:border-[#404040] dark:text-gray-200 dark:hover:bg-[#3e3e3e]
+                              bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200"
                           >
                             View
                           </button>
@@ -448,70 +324,42 @@ export default function TrustLedgerPage() {
             </table>
           </div>
         </div>
-      </main>
+      </div>
 
-      {/* ── Payload Inspector Modal ─────────────────────────────────────────── */}
+      {/* Block Inspection Modal */}
       {selectedEvent && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <span className="text-purple-400 font-bold font-mono">Block #{selectedEvent.id}</span>
-                <span className="text-xs px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
-                  {selectedEvent.type}
-                </span>
-              </div>
-              <button
-                onClick={() => setSelectedEvent(null)}
-                className="text-slate-400 hover:text-white font-bold px-2 py-1"
-              >
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="max-w-xl w-full rounded-lg border p-5 shadow-2xl transition-colors
+            dark:bg-[#282828] dark:border-[#3e3e3e] bg-white border-gray-200 text-left">
+            <div className="flex items-center justify-between pb-3 border-b dark:border-[#383838] border-gray-200">
+              <h3 className="font-bold text-sm dark:text-white text-gray-900">
+                Block #{selectedEvent.id} Details
+              </h3>
+              <button onClick={() => setSelectedEvent(null)} className="dark:text-gray-400 text-gray-500 hover:text-white font-bold">
                 ✕
               </button>
             </div>
-
-            <div className="space-y-3 text-xs font-mono">
+            <div className="py-4 space-y-3 font-mono text-xs">
               <div>
-                <span className="text-slate-500 uppercase tracking-wider block text-[10px]">Previous Hash</span>
-                <p className="bg-slate-950 p-2 rounded border border-slate-800 text-slate-400 break-all select-all">
-                  {selectedEvent.prev_hash}
-                </p>
+                <span className="text-gray-500 block text-[10px]">EVENT TYPE:</span>
+                <span className="font-bold text-[#ffa116]">{selectedEvent.type}</span>
               </div>
-
               <div>
-                <span className="text-slate-500 uppercase tracking-wider block text-[10px]">Block Hash (SHA-256)</span>
-                <p className="bg-slate-950 p-2 rounded border border-slate-800 text-purple-300 break-all select-all">
-                  {selectedEvent.hash}
-                </p>
+                <span className="text-gray-500 block text-[10px]">SHA-256 HASH:</span>
+                <span className="text-[#00b8a3] break-all">{selectedEvent.hash}</span>
               </div>
-
               <div>
-                <span className="text-slate-500 uppercase tracking-wider block text-[10px]">Timestamp & Centre</span>
-                <p className="text-slate-300">
-                  {selectedEvent.timestamp} · Centre: {selectedEvent.centre_id || 'SYSTEM'}
-                </p>
+                <span className="text-gray-500 block text-[10px]">PREVIOUS HASH:</span>
+                <span className="dark:text-gray-400 text-gray-600 break-all">{selectedEvent.prev_hash}</span>
               </div>
-
               <div>
-                <span className="text-slate-500 uppercase tracking-wider block text-[10px]">Payload JSON</span>
-                <pre className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-slate-200 overflow-x-auto max-h-60 text-[11px]">
-                  {(() => {
-                    try {
-                      return JSON.stringify(JSON.parse(selectedEvent.payload), null, 2);
-                    } catch {
-                      return selectedEvent.payload;
-                    }
-                  })()}
+                <span className="text-gray-500 block text-[10px]">PAYLOAD:</span>
+                <pre className="p-2.5 rounded border dark:bg-[#202020] dark:border-[#333] bg-gray-50 border-gray-200 text-[11px] overflow-x-auto">
+                  {typeof selectedEvent.payload === 'string'
+                    ? selectedEvent.payload
+                    : JSON.stringify(selectedEvent.payload, null, 2)}
                 </pre>
               </div>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button
-                onClick={() => setSelectedEvent(null)}
-                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold"
-              >
-                Close
-              </button>
             </div>
           </div>
         </div>

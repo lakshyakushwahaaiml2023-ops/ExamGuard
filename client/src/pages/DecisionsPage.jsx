@@ -1,52 +1,42 @@
 /**
- * DecisionsPage — /decisions Route
+ * DecisionsPage — /decisions Route (LeetCode Themed Decision Support System)
  * ═══════════════════════════════════════════════════════════════════════════
- * ExamGuard Decision Support System (DSS)
- *
- * Rules:
- *   1. > 30% of total candidates affected OR exam-wide issue -> "Full reschedule"
- *   2. Some unrecovered candidates (> 0 unrecovered)         -> "Partial re-conduct for affected candidates only"
- *   3. 0 unrecovered candidates AND disruption < 10 mins     -> "No re-conduct needed"
- *
- * Features:
- *   - Impact assessment breakdown: affected, recovered via failover, unrecovered, duration, scope.
- *   - Explicit reasoning list showing exact mathematical rules that fired.
- *   - Supporting TrustLedger evidence block links.
- *   - Approve / Override adjudication workflow with cryptographic ledger signing.
- *   - Real-time updates via Socket.IO.
+ * LeetCode styled automated post-incident impact assessment and statutory
+ * recommendation engine with dark/light mode toggle.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import socket from '../socket';
+import LeetCodeNavbar from '../components/LeetCodeNavbar.jsx';
 
 const API = '';
 
 const RECOMMENDATION_STYLES = {
   'No re-conduct needed': {
-    badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-    cardBorder: 'border-emerald-500/30 hover:border-emerald-500/60',
+    badge: 'dark:bg-[#00b8a3]/15 bg-teal-50 dark:text-[#00b8a3] text-teal-700 dark:border-[#00b8a3]/30 border-teal-200',
+    cardBorder: 'hover:border-[#00b8a3]/60',
     icon: '✅',
-    accent: 'text-emerald-400'
+    accent: 'text-[#00b8a3]'
   },
   'Partial re-conduct for affected candidates only': {
-    badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-    cardBorder: 'border-amber-500/30 hover:border-amber-500/60',
+    badge: 'dark:bg-[#ffa116]/15 bg-amber-50 dark:text-[#ffa116] text-amber-700 dark:border-[#ffa116]/30 border-amber-200',
+    cardBorder: 'hover:border-[#ffa116]/60',
     icon: '⚠️',
-    accent: 'text-amber-400'
+    accent: 'text-[#ffa116]'
   },
   'Full reschedule': {
-    badge: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
-    cardBorder: 'border-rose-500/30 hover:border-rose-500/60',
+    badge: 'dark:bg-[#ff375f]/15 bg-rose-50 dark:text-[#ff375f] text-rose-700 dark:border-[#ff375f]/30 border-rose-200',
+    cardBorder: 'hover:border-[#ff375f]/60',
     icon: '🚨',
-    accent: 'text-rose-400'
+    accent: 'text-[#ff375f]'
   }
 };
 
 const STATUS_STYLES = {
-  'PENDING':    'bg-blue-500/20 text-blue-300 border-blue-500/40 animate-pulse',
-  'APPROVED':   'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-  'OVERRIDDEN': 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+  'PENDING':    'dark:bg-blue-500/15 bg-blue-50 dark:text-blue-400 text-blue-700 dark:border-blue-500/30 border-blue-200 animate-pulse',
+  'APPROVED':   'dark:bg-[#00b8a3]/15 bg-teal-50 dark:text-[#00b8a3] text-teal-700 dark:border-[#00b8a3]/30 border-teal-200',
+  'OVERRIDDEN': 'dark:bg-purple-500/15 bg-purple-50 dark:text-purple-400 text-purple-700 dark:border-purple-500/30 border-purple-200'
 };
 
 export default function DecisionsPage() {
@@ -137,7 +127,7 @@ export default function DecisionsPage() {
       const data = await res.json();
       if (data.success) {
         setDecisions(prev => prev.map(d => d.id === decision.id ? data.decision : d));
-        setActionSuccess(`Decision ${decision.id} Approved & logged to TrustLedger.`);
+        setActionSuccess(`Decision #${decision.id} Approved & cryptographically logged to TrustLedger.`);
         setTimeout(() => setActionSuccess(null), 5000);
       }
     } catch (err) {
@@ -180,7 +170,7 @@ export default function DecisionsPage() {
       if (data.success) {
         setDecisions(prev => prev.map(d => d.id === activeDecision.id ? data.decision : d));
         setOverrideModalOpen(false);
-        setActionSuccess(`Decision ${activeDecision.id} Overridden & signed to TrustLedger.`);
+        setActionSuccess(`Decision #${activeDecision.id} Overridden & signed to TrustLedger.`);
         setTimeout(() => setActionSuccess(null), 5000);
       } else {
         alert('Override error: ' + data.error);
@@ -196,158 +186,126 @@ export default function DecisionsPage() {
   const viewEvidenceBlock = async (ledgerId) => {
     try {
       setLoadingEvidence(true);
+      setSelectedEvidence(null);
       setEvidenceModalOpen(true);
       const res = await fetch(`${API}/api/ledger/event/${ledgerId}`);
       if (res.ok) {
-        const event = await res.json();
-        setSelectedEvidence(event);
-      } else {
-        setSelectedEvidence({ id: ledgerId, error: 'Event not found in TrustLedger' });
+        const data = await res.json();
+        setSelectedEvidence(data.event || data);
       }
     } catch (err) {
-      setSelectedEvidence({ id: ledgerId, error: err.message });
+      console.error('Failed to load evidence block:', err);
     } finally {
       setLoadingEvidence(false);
     }
   };
 
-  // Stats calculation
-  const totalDecisions = decisions.length;
-  const noReconductCount = decisions.filter(d => (d.final_decision || d.recommendation) === 'No re-conduct needed').length;
-  const partialCount = decisions.filter(d => (d.final_decision || d.recommendation) === 'Partial re-conduct for affected candidates only').length;
-  const fullRescheduleCount = decisions.filter(d => (d.final_decision || d.recommendation) === 'Full reschedule').length;
-  const pendingCount = decisions.filter(d => d.status === 'PENDING').length;
-
   // Filtered decisions list
   const filtered = decisions.filter(d => {
-    if (filterRec !== 'ALL' && d.recommendation !== filterRec) return false;
-    if (filterStatus !== 'ALL' && d.status !== filterStatus) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchId = d.id?.toLowerCase().includes(q);
-      const matchCentre = d.centre_id?.toLowerCase().includes(q);
-      const matchInc = d.incident_id?.toLowerCase().includes(q);
-      if (!matchId && !matchCentre && !matchInc) return false;
-    }
-    return true;
+    const matchesRec = filterRec === 'ALL' || d.recommendation === filterRec;
+    const matchesStatus = filterStatus === 'ALL' || d.status === filterStatus;
+    const query = searchQuery.toLowerCase();
+    const matchesSearch = !query ||
+      (d.centre_id || '').toLowerCase().includes(query) ||
+      (d.incident_id || '').toLowerCase().includes(query) ||
+      (d.recommendation || '').toLowerCase().includes(query);
+    return matchesRec && matchesStatus && matchesSearch;
   });
 
+  const totalDecisions = decisions.length;
+  const noReconductCount = decisions.filter(d => d.recommendation === 'No re-conduct needed').length;
+  const partialCount = decisions.filter(d => d.recommendation === 'Partial re-conduct for affected candidates only').length;
+  const fullRescheduleCount = decisions.filter(d => d.recommendation === 'Full reschedule').length;
+  const pendingCount = decisions.filter(d => d.status === 'PENDING').length;
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      {/* ── Top Navigation Bar ─────────────────────────────────────────────── */}
-      <header className="px-6 py-4 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 sticky top-0 z-30">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
-            <span className="text-lg">⚖️</span>
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-black text-white tracking-tight">ExamGuard</h1>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/30 uppercase tracking-wide">
-                DSS
-              </span>
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-slate-700 uppercase tracking-wide">
-                Adjudication
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Automated Post-Incident Impact Assessment &amp; Statutory Recommendation Engine
-            </p>
-          </div>
-
-          {/* Navigation Links */}
-          <div className="hidden md:flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 ml-4 text-xs font-semibold">
-            <Link to="/admin" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-blue-300 hover:bg-slate-800 transition flex items-center gap-1">
-              <span>🛡️</span>
-              <span>Sentinel Grid</span>
-            </Link>
-            <Link to="/ledger" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-purple-300 hover:bg-slate-800 transition flex items-center gap-1">
-              <span>⛓️</span>
-              <span>TrustLedger</span>
-            </Link>
-            <span className="px-3 py-1.5 rounded-lg bg-purple-600/80 text-white shadow-sm flex items-center gap-1">
-              <span>⚖️</span>
-              <span>Decision Support</span>
-            </span>
-            <Link to="/status" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-emerald-300 hover:bg-slate-800 transition flex items-center gap-1">
-              <span>🌐</span>
-              <span>Public Status</span>
-            </Link>
-            <Link to="/exam?candidate=cand-1" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition flex items-center gap-1">
-              <span>🖥️</span>
-              <span>Candidate View</span>
-            </Link>
-          </div>
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleEvaluate}
-            disabled={evaluating}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 text-xs font-bold transition shadow-sm disabled:opacity-50"
-            title="Scan database for resolved incidents without decisions and evaluate rule-based impact"
-          >
-            <span>{evaluating ? '⏳' : '🔄'}</span>
-            <span>{evaluating ? 'Evaluating Incidents...' : 'Re-Evaluate Incidents'}</span>
-          </button>
-        </div>
-      </header>
-
-      {/* ── Toast Notification Banner ────────────────────────────────────────── */}
-      {actionSuccess && (
-        <div className="mx-6 mt-4 p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-xs font-semibold flex items-center justify-between">
+    <div className="min-h-screen flex flex-col select-none transition-colors duration-150 dark:bg-[#1a1a1a] bg-[#f7f7f8] dark:text-[#eff1f6] text-[#262626]">
+      {/* ── LeetCode Top Navigation ──────────────────────────────────────────── */}
+      <LeetCodeNavbar
+        extraRight={
           <div className="flex items-center gap-2">
-            <span>✨</span>
-            <span>{actionSuccess}</span>
+            <button
+              onClick={handleEvaluate}
+              disabled={evaluating}
+              className="px-3 py-1 rounded-md text-xs font-semibold text-white bg-[#00b8a3] hover:bg-[#00a390] transition shadow-2xs flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+              title="Scan database for resolved incidents without decisions and evaluate rule-based impact"
+            >
+              <span>{evaluating ? '⏳' : '🔄'}</span>
+              <span>{evaluating ? 'Evaluating...' : 'Re-Evaluate Incidents'}</span>
+            </button>
           </div>
-          <button onClick={() => setActionSuccess(null)} className="text-emerald-400 hover:text-white">✕</button>
-        </div>
-      )}
+        }
+      />
 
       {/* ── Main Content Container ──────────────────────────────────────────── */}
-      <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
+      <div className="max-w-[1600px] mx-auto w-full px-4 py-4 flex flex-col gap-4 flex-1">
+        {/* Toast Notification Banner */}
+        {actionSuccess && (
+          <div className="p-3 rounded-lg border flex items-center justify-between text-xs font-medium dark:bg-[#00b8a3]/15 dark:border-[#00b8a3]/40 dark:text-[#00b8a3] bg-teal-50 border-teal-200 text-teal-800">
+            <div className="flex items-center gap-2">
+              <span>✨</span>
+              <span>{actionSuccess}</span>
+            </div>
+            <button onClick={() => setActionSuccess(null)} className="dark:text-[#00b8a3] hover:text-white font-bold">✕</button>
+          </div>
+        )}
+
+        {/* Header Title Section */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-1 border-b dark:border-[#282828] border-gray-200">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-bold tracking-tight">Statutory Decision Support System (DSS)</h1>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full dark:bg-[#ffa116]/15 dark:text-[#ffa116] bg-amber-50 text-amber-700 border dark:border-[#ffa116]/30 border-amber-200 font-mono">
+                RULE ENGINE ACTIVE
+              </span>
+            </div>
+            <p className="text-xs dark:text-gray-400 text-gray-500 mt-0.5">
+              Automated post-incident mathematical impact evaluations &amp; legally defensible adjudication workflows.
+            </p>
+          </div>
+        </div>
+
         {/* KPI Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col">
-            <span className="text-xs text-slate-400 uppercase font-semibold">Total Assessments</span>
-            <span className="text-2xl font-black text-white mt-1">{totalDecisions}</span>
-            <span className="text-[10px] text-slate-500 mt-0.5">Post-incident evaluations</span>
+          <div className="p-3.5 rounded-lg dark:bg-[#282828] bg-white border dark:border-[#3e3e3e] border-gray-200 flex flex-col shadow-2xs">
+            <span className="text-[11px] dark:text-gray-400 text-gray-500 uppercase font-semibold">Total Assessments</span>
+            <span className="text-2xl font-bold font-mono mt-1">{totalDecisions}</span>
+            <span className="text-[10px] dark:text-gray-500 text-gray-400 mt-0.5">Post-incident evaluations</span>
           </div>
-          <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex flex-col">
-            <span className="text-xs text-emerald-400 uppercase font-semibold">No Re-Conduct</span>
-            <span className="text-2xl font-black text-emerald-300 mt-1">{noReconductCount}</span>
-            <span className="text-[10px] text-emerald-500/80 mt-0.5">0 unrecovered, &lt;10m</span>
+          <div className="p-3.5 rounded-lg dark:bg-[#282828] bg-white border dark:border-[#3e3e3e] border-gray-200 flex flex-col shadow-2xs">
+            <span className="text-[11px] text-[#00b8a3] uppercase font-semibold">No Re-Conduct</span>
+            <span className="text-2xl font-bold font-mono text-[#00b8a3] mt-1">{noReconductCount}</span>
+            <span className="text-[10px] dark:text-gray-500 text-gray-400 mt-0.5">0 unrecovered, &lt;10m</span>
           </div>
-          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col">
-            <span className="text-xs text-amber-400 uppercase font-semibold">Partial Re-Conduct</span>
-            <span className="text-2xl font-black text-amber-300 mt-1">{partialCount}</span>
-            <span className="text-[10px] text-amber-500/80 mt-0.5">Some unrecovered</span>
+          <div className="p-3.5 rounded-lg dark:bg-[#282828] bg-white border dark:border-[#3e3e3e] border-gray-200 flex flex-col shadow-2xs">
+            <span className="text-[11px] text-[#ffa116] uppercase font-semibold">Partial Re-Conduct</span>
+            <span className="text-2xl font-bold font-mono text-[#ffa116] mt-1">{partialCount}</span>
+            <span className="text-[10px] dark:text-gray-500 text-gray-400 mt-0.5">Some unrecovered</span>
           </div>
-          <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 flex flex-col">
-            <span className="text-xs text-rose-400 uppercase font-semibold">Full Reschedule</span>
-            <span className="text-2xl font-black text-rose-300 mt-1">{fullRescheduleCount}</span>
-            <span className="text-[10px] text-rose-500/80 mt-0.5">&gt;30% affected or exam-wide</span>
+          <div className="p-3.5 rounded-lg dark:bg-[#282828] bg-white border dark:border-[#3e3e3e] border-gray-200 flex flex-col shadow-2xs">
+            <span className="text-[11px] text-[#ff375f] uppercase font-semibold">Full Reschedule</span>
+            <span className="text-2xl font-bold font-mono text-[#ff375f] mt-1">{fullRescheduleCount}</span>
+            <span className="text-[10px] dark:text-gray-500 text-gray-400 mt-0.5">&gt;30% affected or exam-wide</span>
           </div>
-          <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/30 flex flex-col">
-            <span className="text-xs text-blue-400 uppercase font-semibold">Pending Review</span>
-            <span className="text-2xl font-black text-blue-300 mt-1">{pendingCount}</span>
-            <span className="text-[10px] text-blue-500/80 mt-0.5">Awaiting controller action</span>
+          <div className="p-3.5 rounded-lg dark:bg-[#282828] bg-white border dark:border-[#3e3e3e] border-gray-200 flex flex-col shadow-2xs">
+            <span className="text-[11px] text-blue-400 uppercase font-semibold">Pending Review</span>
+            <span className="text-2xl font-bold font-mono text-blue-400 mt-1">{pendingCount}</span>
+            <span className="text-[10px] dark:text-gray-500 text-gray-400 mt-0.5">Awaiting controller action</span>
           </div>
         </div>
 
         {/* Filter & Search Bar */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-          <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
-            <span className="text-xs text-slate-400 font-semibold mr-1">Filter:</span>
+        <div className="flex flex-col md:flex-row items-center justify-between gap-3 p-3 rounded-lg dark:bg-[#282828] bg-white border dark:border-[#3e3e3e] border-gray-200 shadow-2xs">
+          <div className="flex items-center gap-1.5 flex-wrap w-full md:w-auto">
+            <span className="text-xs dark:text-gray-400 text-gray-500 font-medium mr-1">Filter:</span>
             {['ALL', 'No re-conduct needed', 'Partial re-conduct for affected candidates only', 'Full reschedule'].map(rec => (
               <button
                 key={rec}
                 onClick={() => setFilterRec(rec)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                className={`px-2.5 py-1 rounded text-xs font-medium transition ${
                   filterRec === rec
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                    ? 'dark:bg-[#333333] bg-gray-200 dark:text-white text-gray-900 font-semibold'
+                    : 'dark:text-gray-400 text-gray-600 hover:dark:bg-[#202020] hover:bg-gray-100'
                 }`}
               >
                 {rec === 'ALL' ? 'All Rules' : rec.split(' ')[0] + ' ' + (rec.split(' ')[1] || '')}
@@ -359,7 +317,7 @@ export default function DecisionsPage() {
             <select
               value={filterStatus}
               onChange={e => setFilterStatus(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-xs text-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-purple-500"
+              className="dark:bg-[#1a1a1a] bg-gray-50 border dark:border-[#3e3e3e] border-gray-300 text-xs dark:text-gray-200 text-gray-800 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-[#ffa116]"
             >
               <option value="ALL">Status: All</option>
               <option value="PENDING">Pending Review</option>
@@ -372,14 +330,14 @@ export default function DecisionsPage() {
               placeholder="Search centre, incident ID..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-xs text-slate-200 placeholder-slate-500 rounded-lg px-3 py-1.5 focus:outline-none focus:border-purple-500 w-full md:w-56"
+              className="dark:bg-[#1a1a1a] bg-gray-50 border dark:border-[#3e3e3e] border-gray-300 text-xs dark:text-gray-200 text-gray-800 placeholder-gray-400 rounded-md px-3 py-1.5 focus:outline-none focus:border-[#ffa116] w-full md:w-56"
             />
           </div>
         </div>
 
         {/* Loading State */}
         {loading && (
-          <div className="p-12 text-center text-slate-500 text-sm">
+          <div className="p-12 text-center dark:text-gray-400 text-gray-500 text-sm">
             <span className="inline-block animate-spin mr-2">⚙️</span>
             Loading decision support assessments...
           </div>
@@ -387,14 +345,14 @@ export default function DecisionsPage() {
 
         {/* Empty State */}
         {!loading && filtered.length === 0 && (
-          <div className="p-12 text-center rounded-2xl bg-slate-900/40 border border-slate-800 text-slate-400">
+          <div className="p-12 text-center rounded-lg dark:bg-[#282828] bg-white border dark:border-[#3e3e3e] border-gray-200 dark:text-gray-300 text-gray-600">
             <p className="text-base font-semibold mb-1">No Decision Records Found</p>
-            <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
+            <p className="text-xs dark:text-gray-400 text-gray-500 max-w-md mx-auto mb-4">
               When exam incidents are resolved, TriageAI and the Decision Support Engine automatically compute impact assessments here.
             </p>
             <button
               onClick={handleEvaluate}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition"
+              className="px-4 py-2 bg-[#00b8a3] hover:bg-[#00a390] text-white rounded-md text-xs font-semibold transition"
             >
               Scan &amp; Evaluate Past Incidents
             </button>
@@ -412,119 +370,119 @@ export default function DecisionsPage() {
             return (
               <div
                 key={decision.id}
-                className={`p-5 rounded-2xl bg-slate-900/80 border transition-all duration-200 ${recStyle.cardBorder}`}
+                className={`p-5 rounded-lg dark:bg-[#282828] bg-white border dark:border-[#3e3e3e] border-gray-200 transition-all duration-150 shadow-2xs ${recStyle.cardBorder}`}
               >
                 {/* Header Row: Recommendation Badge, Status Badge & Incident Meta */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b dark:border-[#333333] border-gray-100">
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="text-xl">{recStyle.icon}</span>
-                    <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${recStyle.badge}`}>
+                    <span className="text-lg">{recStyle.icon}</span>
+                    <span className={`px-2.5 py-1 rounded text-xs font-semibold border ${recStyle.badge}`}>
                       {decision.recommendation}
                     </span>
-                    <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-mono font-bold border uppercase tracking-wider ${statusStyle}`}>
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold border uppercase tracking-wider ${statusStyle}`}>
                       {decision.status}
                     </span>
                     {metrics.isExamWide ? (
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 uppercase">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold dark:bg-[#ff375f]/15 bg-rose-50 dark:text-[#ff375f] text-rose-700 border dark:border-[#ff375f]/30 border-rose-200 uppercase">
                         Exam-Wide Scope
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-500/10 text-blue-300 border border-blue-500/20 uppercase">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold dark:bg-blue-500/10 bg-blue-50 dark:text-blue-400 text-blue-700 border dark:border-blue-500/20 border-blue-200 uppercase">
                         Centre-Level Scope
                       </span>
                     )}
                   </div>
 
-                  <div className="flex items-center gap-3 text-xs text-slate-400 font-mono">
-                    <span>Centre: <strong className="text-slate-200 uppercase">{decision.centre_id}</strong></span>
+                  <div className="flex items-center gap-3 text-xs dark:text-gray-400 text-gray-500 font-mono">
+                    <span>Centre: <strong className="dark:text-gray-200 text-gray-800 uppercase">{decision.centre_id}</strong></span>
                     <span>•</span>
-                    <span className="text-[11px] text-slate-500">{decision.incident_id}</span>
+                    <span className="text-[11px] dark:text-gray-500 text-gray-400">{decision.incident_id}</span>
                   </div>
                 </div>
 
                 {/* Overridden Alert Box if status === OVERRIDDEN */}
                 {decision.status === 'OVERRIDDEN' && (
-                  <div className="mt-3 p-3 rounded-xl bg-purple-500/15 border border-purple-500/30 text-xs">
-                    <div className="flex items-center justify-between font-bold text-purple-200 mb-1">
+                  <div className="mt-3 p-3 rounded-md dark:bg-purple-500/10 bg-purple-50 border dark:border-purple-500/30 border-purple-200 text-xs">
+                    <div className="flex items-center justify-between font-bold dark:text-purple-300 text-purple-800 mb-1">
                       <span>⚖️ Adjudication Override Applied</span>
-                      <span className="text-[10px] text-purple-400 font-mono">By: {decision.decided_by}</span>
+                      <span className="text-[10px] dark:text-purple-400 text-purple-600 font-mono">By: {decision.decided_by}</span>
                     </div>
-                    <p className="text-slate-300 text-xs">
-                      <strong className="text-purple-300">Statutory Justification:</strong> {decision.override_reason}
+                    <p className="dark:text-gray-300 text-gray-700 text-xs">
+                      <strong className="dark:text-purple-300 text-purple-700">Statutory Justification:</strong> {decision.override_reason}
                     </p>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
+                    <div className="mt-1 flex items-center gap-2 text-[11px] dark:text-gray-400 text-gray-500">
                       <span>Original Rule: <span className="line-through">{decision.recommendation}</span></span>
                       <span>➔</span>
-                      <span className="text-emerald-300 font-bold">Final Ruling: {decision.final_decision}</span>
+                      <span className="text-[#00b8a3] font-bold">Final Ruling: {decision.final_decision}</span>
                     </div>
                   </div>
                 )}
 
                 {/* Approved Notice if status === APPROVED */}
                 {decision.status === 'APPROVED' && (
-                  <div className="mt-3 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs flex items-center justify-between text-emerald-300">
+                  <div className="mt-3 px-3 py-2 rounded-md dark:bg-[#00b8a3]/10 bg-teal-50 border dark:border-[#00b8a3]/20 border-teal-200 text-xs flex items-center justify-between text-[#00b8a3]">
                     <span className="font-semibold">✓ Rule-Based Recommendation Approved and Enforced</span>
-                    <span className="text-[11px] text-emerald-400/80 font-mono">Signed by: {decision.decided_by || 'Controller'}</span>
+                    <span className="text-[11px] opacity-80 font-mono">Signed by: {decision.decided_by || 'Controller'}</span>
                   </div>
                 )}
 
                 {/* ── Impact Assessment Metrics Grid ───────────────────────────── */}
                 <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Affected Candidates</span>
-                    <span className="text-base font-bold text-white mt-0.5">
+                  <div className="p-2.5 rounded-md dark:bg-[#202020] bg-gray-50 border dark:border-[#333333] border-gray-200 flex flex-col">
+                    <span className="text-[10px] dark:text-gray-400 text-gray-500 uppercase font-semibold">Affected Candidates</span>
+                    <span className="text-base font-bold dark:text-white text-gray-900 mt-0.5 font-mono">
                       {metrics.candidatesAffected ?? '—'}
-                      <span className="text-xs text-slate-500 ml-1">({metrics.affectedPercentage ?? 0}%)</span>
+                      <span className="text-xs dark:text-gray-500 text-gray-400 ml-1 font-normal">({metrics.affectedPercentage ?? 0}%)</span>
                     </span>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Failover Recovered</span>
-                    <span className="text-base font-bold text-emerald-400 mt-0.5">
+                  <div className="p-2.5 rounded-md dark:bg-[#202020] bg-gray-50 border dark:border-[#333333] border-gray-200 flex flex-col">
+                    <span className="text-[10px] dark:text-gray-400 text-gray-500 uppercase font-semibold">Failover Recovered</span>
+                    <span className="text-base font-bold text-[#00b8a3] mt-0.5 font-mono">
                       {metrics.candidatesRecovered ?? '—'}
                     </span>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Unrecovered</span>
-                    <span className={`text-base font-bold mt-0.5 ${metrics.candidatesUnrecovered > 0 ? 'text-rose-400' : 'text-slate-300'}`}>
+                  <div className="p-2.5 rounded-md dark:bg-[#202020] bg-gray-50 border dark:border-[#333333] border-gray-200 flex flex-col">
+                    <span className="text-[10px] dark:text-gray-400 text-gray-500 uppercase font-semibold">Unrecovered</span>
+                    <span className={`text-base font-bold mt-0.5 font-mono ${metrics.candidatesUnrecovered > 0 ? 'text-[#ff375f]' : 'dark:text-gray-300 text-gray-700'}`}>
                       {metrics.candidatesUnrecovered ?? 0}
                     </span>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Disruption Duration</span>
-                    <span className="text-base font-bold text-blue-300 mt-0.5">
-                      {metrics.disruptionMinutes ?? 0} <span className="text-xs text-slate-400 font-normal">mins</span>
+                  <div className="p-2.5 rounded-md dark:bg-[#202020] bg-gray-50 border dark:border-[#333333] border-gray-200 flex flex-col">
+                    <span className="text-[10px] dark:text-gray-400 text-gray-500 uppercase font-semibold">Disruption Duration</span>
+                    <span className="text-base font-bold text-blue-400 mt-0.5 font-mono">
+                      {metrics.disruptionMinutes ?? 0} <span className="text-xs dark:text-gray-400 text-gray-500 font-normal">mins</span>
                     </span>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Answers Lost</span>
-                    <span className="text-base font-bold text-emerald-400 mt-0.5">
+                  <div className="p-2.5 rounded-md dark:bg-[#202020] bg-gray-50 border dark:border-[#333333] border-gray-200 flex flex-col">
+                    <span className="text-[10px] dark:text-gray-400 text-gray-500 uppercase font-semibold">Answers Lost</span>
+                    <span className="text-base font-bold text-[#00b8a3] mt-0.5 font-mono">
                       {metrics.answersLost ?? 0}
-                      <span className="text-[10px] text-emerald-500/80 ml-1 font-normal">(Zero-Loss)</span>
+                      <span className="text-[10px] text-[#00b8a3]/80 ml-1 font-normal">(Zero-Loss)</span>
                     </span>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Outage Scope</span>
-                    <span className="text-xs font-bold text-slate-200 mt-1 uppercase">
+                  <div className="p-2.5 rounded-md dark:bg-[#202020] bg-gray-50 border dark:border-[#333333] border-gray-200 flex flex-col">
+                    <span className="text-[10px] dark:text-gray-400 text-gray-500 uppercase font-semibold">Outage Scope</span>
+                    <span className="text-xs font-bold dark:text-gray-200 text-gray-800 mt-1 uppercase font-mono">
                       {metrics.isExamWide ? 'Exam-Wide' : 'Centre-Level'}
                     </span>
                   </div>
                 </div>
 
                 {/* ── Mathematical Reasoning Box ─────────────────────────────── */}
-                <div className="mt-3.5 p-3 rounded-xl bg-slate-950/80 border border-slate-800">
-                  <div className="text-[11px] uppercase tracking-wider text-slate-400 font-bold mb-1.5 flex items-center gap-1.5">
+                <div className="mt-3.5 p-3 rounded-md dark:bg-[#202020] bg-gray-50 border dark:border-[#333333] border-gray-200">
+                  <div className="text-[11px] uppercase tracking-wider dark:text-gray-400 text-gray-500 font-bold mb-1.5 flex items-center gap-1.5">
                     <span>📐</span>
                     <span>Rule Engine Evaluation &amp; Statutory Reasoning:</span>
                   </div>
                   <ul className="space-y-1">
                     {decision.reasoning?.map((reason, idx) => (
-                      <li key={idx} className="text-xs text-slate-300 flex items-start gap-2">
-                        <span className="text-purple-400 font-bold">•</span>
+                      <li key={idx} className="text-xs dark:text-gray-300 text-gray-700 flex items-start gap-2">
+                        <span className="text-[#ffa116] font-bold">•</span>
                         <span>{reason}</span>
                       </li>
                     ))}
@@ -532,10 +490,10 @@ export default function DecisionsPage() {
                 </div>
 
                 {/* ── Cryptographic Evidence & Adjudication Controls ─────────── */}
-                <div className="mt-4 pt-3 border-t border-slate-800/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="mt-4 pt-3 border-t dark:border-[#333333] border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   {/* TrustLedger Evidence Badges */}
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold text-slate-400 flex items-center gap-1">
+                    <span className="text-xs font-medium dark:text-gray-400 text-gray-500 flex items-center gap-1">
                       <span>⛓️</span>
                       <span>TrustLedger Proof:</span>
                     </span>
@@ -544,17 +502,17 @@ export default function DecisionsPage() {
                         <button
                           key={eid}
                           onClick={() => viewEvidenceBlock(eid)}
-                          className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-purple-500/10 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 transition flex items-center gap-1"
+                          className="px-2.5 py-1 rounded text-[11px] font-mono dark:bg-[#1a1a1a] bg-gray-100 hover:border-[#ffa116] border dark:border-[#3e3e3e] border-gray-300 dark:text-gray-200 text-gray-800 transition flex items-center gap-1"
                           title={`Click to inspect SHA-256 evidence block #${eid}`}
                         >
                           <span>Block #{eid}</span>
-                          <span className="text-[9px] text-purple-400">🔍</span>
+                          <span className="text-[9px] text-[#ffa116]">🔍</span>
                         </button>
                       ))
                     ) : (
                       <Link
                         to="/ledger"
-                        className="text-xs text-purple-400 hover:text-purple-300 underline font-mono"
+                        className="text-xs text-[#ffa116] hover:underline font-mono"
                       >
                         View Full Ledger Audit Trail ➔
                       </Link>
@@ -567,14 +525,16 @@ export default function DecisionsPage() {
                       <>
                         <button
                           onClick={() => handleApprove(decision)}
-                          className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5"
+                          className="px-4 py-1.5 rounded-md bg-[#00b8a3] hover:bg-[#00a390] text-white text-xs font-semibold transition shadow-2xs flex items-center gap-1.5 active:scale-95"
                         >
                           <span>✓</span>
                           <span>Approve</span>
                         </button>
                         <button
                           onClick={() => openOverride(decision)}
-                          className="px-3.5 py-1.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 text-xs font-bold transition flex items-center gap-1.5"
+                          className="px-3.5 py-1.5 rounded-md border text-xs font-semibold transition active:scale-95 flex items-center gap-1.5
+                            dark:border-[#ffa116]/40 dark:bg-[#ffa116]/10 dark:text-[#ffa116] dark:hover:bg-[#ffa116]/20
+                            border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
                         >
                           <span>✎</span>
                           <span>Override...</span>
@@ -583,7 +543,9 @@ export default function DecisionsPage() {
                     ) : (
                       <button
                         onClick={() => openOverride(decision)}
-                        className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+                        className="px-3 py-1 rounded-md text-xs font-medium border transition
+                          dark:bg-[#333333] dark:border-[#404040] dark:text-gray-300 dark:hover:bg-[#3e3e3e]
+                          bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
                       >
                         Re-Adjudicate / Override
                       </button>
@@ -594,41 +556,41 @@ export default function DecisionsPage() {
             );
           })}
         </div>
-      </main>
+      </div>
 
       {/* ── Override Adjudication Modal ─────────────────────────────────────── */}
       {overrideModalOpen && activeDecision && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-purple-500/40 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="dark:bg-[#282828] bg-white border dark:border-[#3e3e3e] border-gray-300 rounded-lg max-w-lg w-full p-5 shadow-2xl relative">
+            <div className="flex items-center justify-between pb-3 border-b dark:border-[#3e3e3e] border-gray-200">
               <div className="flex items-center gap-2">
                 <span className="text-xl">⚖️</span>
-                <h3 className="text-base font-bold text-white">Override Recommendation</h3>
+                <h3 className="text-sm font-bold dark:text-white text-gray-900">Override Recommendation</h3>
               </div>
               <button
                 onClick={() => setOverrideModalOpen(false)}
-                className="text-slate-400 hover:text-white text-sm"
+                className="dark:text-gray-400 text-gray-500 hover:dark:text-white hover:text-black text-sm"
               >
                 ✕
               </button>
             </div>
 
             <form onSubmit={handleOverrideSubmit} className="mt-4 space-y-4">
-              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs">
-                <span className="text-slate-400">Incident:</span> <strong className="text-slate-200 font-mono">{activeDecision.incident_id}</strong>
+              <div className="p-3 rounded-md dark:bg-[#202020] bg-gray-50 border dark:border-[#333333] border-gray-200 text-xs">
+                <span className="dark:text-gray-400 text-gray-500">Incident:</span> <strong className="dark:text-gray-200 text-gray-800 font-mono">{activeDecision.incident_id}</strong>
                 <br />
-                <span className="text-slate-400">Original Rule Recommendation:</span>{' '}
-                <strong className="text-amber-300">{activeDecision.recommendation}</strong>
+                <span className="dark:text-gray-400 text-gray-500">Original Rule Recommendation:</span>{' '}
+                <strong className="text-[#ffa116]">{activeDecision.recommendation}</strong>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold dark:text-gray-300 text-gray-700 mb-1">
                   New Adjudicated Ruling:
                 </label>
                 <select
                   value={overrideRuling}
                   onChange={e => setOverrideRuling(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl p-2.5 focus:outline-none focus:border-purple-500"
+                  className="w-full dark:bg-[#1a1a1a] bg-gray-50 border dark:border-[#3e3e3e] border-gray-300 dark:text-gray-200 text-gray-800 text-xs rounded-md p-2.5 focus:outline-none focus:border-[#ffa116]"
                 >
                   <option value="No re-conduct needed">No re-conduct needed</option>
                   <option value="Partial re-conduct for affected candidates only">Partial re-conduct for affected candidates only</option>
@@ -637,7 +599,7 @@ export default function DecisionsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold dark:text-gray-300 text-gray-700 mb-1">
                   Adjudicating Authority:
                 </label>
                 <input
@@ -645,13 +607,13 @@ export default function DecisionsPage() {
                   value={overrideOfficer}
                   onChange={e => setOverrideOfficer(e.target.value)}
                   placeholder="e.g. Chief Exam Controller Dr. Sharma"
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl p-2.5 focus:outline-none focus:border-purple-500"
+                  className="w-full dark:bg-[#1a1a1a] bg-gray-50 border dark:border-[#3e3e3e] border-gray-300 dark:text-gray-200 text-gray-800 text-xs rounded-md p-2.5 focus:outline-none focus:border-[#ffa116]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Mandatory Statutory Justification <span className="text-rose-400">*</span>:
+                <label className="block text-xs font-semibold dark:text-gray-300 text-gray-700 mb-1">
+                  Mandatory Statutory Justification <span className="text-[#ff375f]">*</span>:
                 </label>
                 <textarea
                   required
@@ -659,25 +621,25 @@ export default function DecisionsPage() {
                   value={overrideReason}
                   onChange={e => setOverrideReason(e.target.value)}
                   placeholder="State the regulatory, logistical, or grievance committee rationale justifying this deviation from the automated rule engine..."
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl p-2.5 focus:outline-none focus:border-purple-500 resize-none"
+                  className="w-full dark:bg-[#1a1a1a] bg-gray-50 border dark:border-[#3e3e3e] border-gray-300 dark:text-gray-200 text-gray-800 text-xs rounded-md p-2.5 focus:outline-none focus:border-[#ffa116] resize-none"
                 />
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[10px] dark:text-gray-500 text-gray-400 mt-1 block">
                   This justification and officer identity will be cryptographically hashed and logged to TrustLedger.
                 </span>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t dark:border-[#3e3e3e] border-gray-200">
                 <button
                   type="button"
                   onClick={() => setOverrideModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+                  className="px-3.5 py-1.5 rounded-md dark:bg-[#333333] bg-gray-200 dark:text-gray-300 text-gray-700 hover:dark:bg-[#3e3e3e] hover:bg-gray-300 text-xs font-medium transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submittingOverride || !overrideReason.trim()}
-                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-bold transition shadow-md"
+                  className="px-4 py-1.5 rounded-md bg-[#ffa116] hover:bg-[#e59114] disabled:opacity-50 text-white text-xs font-semibold transition shadow-2xs"
                 >
                   {submittingOverride ? 'Signing to Ledger...' : 'Commit Override to TrustLedger'}
                 </button>
@@ -689,54 +651,54 @@ export default function DecisionsPage() {
 
       {/* ── Cryptographic Evidence Modal ───────────────────────────────────── */}
       {evidenceModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="dark:bg-[#282828] bg-white border dark:border-[#3e3e3e] border-gray-300 rounded-lg max-w-lg w-full p-5 shadow-2xl relative">
+            <div className="flex items-center justify-between pb-3 border-b dark:border-[#3e3e3e] border-gray-200">
               <div className="flex items-center gap-2">
                 <span className="text-xl">⛓️</span>
-                <h3 className="text-base font-bold text-white">TrustLedger Cryptographic Evidence</h3>
+                <h3 className="text-sm font-bold dark:text-white text-gray-900">TrustLedger Cryptographic Evidence</h3>
               </div>
               <button
                 onClick={() => setEvidenceModalOpen(false)}
-                className="text-slate-400 hover:text-white text-sm"
+                className="dark:text-gray-400 text-gray-500 hover:dark:text-white hover:text-black text-sm"
               >
                 ✕
               </button>
             </div>
 
             {loadingEvidence ? (
-              <div className="py-8 text-center text-slate-400 text-xs">
+              <div className="py-8 text-center dark:text-gray-400 text-gray-500 text-xs">
                 Fetching cryptographic block from TrustLedger...
               </div>
             ) : selectedEvidence ? (
               <div className="mt-4 space-y-3">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Block ID:</span>
-                  <strong className="text-purple-300 font-mono">#{selectedEvidence.id}</strong>
+                  <span className="dark:text-gray-400 text-gray-500">Block ID:</span>
+                  <strong className="text-[#ffa116] font-mono">#{selectedEvidence.id}</strong>
                 </div>
 
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Event Type:</span>
-                  <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[11px]">
+                  <span className="dark:text-gray-400 text-gray-500">Event Type:</span>
+                  <span className="px-2 py-0.5 rounded dark:bg-blue-500/20 bg-blue-50 text-blue-500 font-mono text-[11px]">
                     {selectedEvidence.type || selectedEvidence.event_type}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Timestamp:</span>
-                  <span className="font-mono text-slate-300 text-[11px]">{selectedEvidence.timestamp}</span>
+                  <span className="dark:text-gray-400 text-gray-500">Timestamp:</span>
+                  <span className="font-mono dark:text-gray-300 text-gray-700 text-[11px]">{selectedEvidence.timestamp}</span>
                 </div>
 
                 <div>
-                  <span className="text-xs text-slate-400 block mb-1">SHA-256 Block Hash:</span>
-                  <div className="p-2 rounded-lg bg-slate-950 font-mono text-[11px] text-purple-300 break-all border border-slate-800">
+                  <span className="text-xs dark:text-gray-400 text-gray-500 block mb-1">SHA-256 Block Hash:</span>
+                  <div className="p-2 rounded-md dark:bg-[#1a1a1a] bg-gray-100 font-mono text-[11px] dark:text-[#eff1f6] text-gray-900 break-all border dark:border-[#3e3e3e] border-gray-200">
                     {selectedEvidence.hash || '—'}
                   </div>
                 </div>
 
                 <div>
-                  <span className="text-xs text-slate-400 block mb-1">Payload Content:</span>
-                  <pre className="p-3 rounded-lg bg-slate-950 font-mono text-[11px] text-slate-300 border border-slate-800 overflow-x-auto max-h-40">
+                  <span className="text-xs dark:text-gray-400 text-gray-500 block mb-1">Payload Content:</span>
+                  <pre className="p-3 rounded-md dark:bg-[#1a1a1a] bg-gray-100 font-mono text-[11px] dark:text-gray-300 text-gray-800 border dark:border-[#3e3e3e] border-gray-200 overflow-x-auto max-h-40">
                     {typeof selectedEvidence.payload === 'string'
                       ? (() => {
                           try {
@@ -752,13 +714,13 @@ export default function DecisionsPage() {
                 <div className="pt-2 flex justify-between items-center">
                   <Link
                     to="/ledger"
-                    className="text-xs text-purple-400 hover:text-purple-300 underline font-semibold"
+                    className="text-xs text-[#ffa116] hover:underline font-semibold"
                   >
                     Open in TrustLedger Explorer ➔
                   </Link>
                   <button
                     onClick={() => setEvidenceModalOpen(false)}
-                    className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"
+                    className="px-3.5 py-1.5 rounded-md dark:bg-[#333333] bg-gray-200 dark:text-gray-200 text-gray-800 hover:dark:bg-[#3e3e3e] hover:bg-gray-300 text-xs font-semibold"
                   >
                     Close
                   </button>

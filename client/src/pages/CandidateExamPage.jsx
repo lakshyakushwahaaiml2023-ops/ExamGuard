@@ -1,30 +1,36 @@
 /**
- * CandidateExamPage — /exam Route
+ * CandidateExamPage — /exam Route (LeetCode Themed Workspace)
  * ═══════════════════════════════════════════════════════════════════════════
- * Real-time Candidate Workstation View demonstrating:
- *   1. Immediate server-side answer checkpointing to SQLite & TrustLedger.
- *   2. "Reconnecting..." state when centre suffers a critical power failure or outage.
- *   3. Automatic resume at the exact same question with zero answers lost upon failover re-attachment.
- *   4. Interactive "Simulate Power Outage" button for instant judge demonstration.
+ * LeetCode problem solving workspace styling with:
+ *   1. Authentic LeetCode dual split-pane interface (Problem Description & Code/Answer Workspace).
+ *   2. Support for seamless Dark & Light mode toggle.
+ *   3. Real-time server-side answer checkpointing.
+ *   4. Automated failover reconnection banner & zero data loss recovery.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import socket from '../socket';
+import LeetCodeNavbar from '../components/LeetCodeNavbar.jsx';
+import { useTheme } from '../context/ThemeContext.jsx';
 
 const API = '';
 
 export default function CandidateExamPage() {
   const [searchParams] = useSearchParams();
   const candidateId = searchParams.get('candidate') || 'cand-1';
+  const { isDark } = useTheme();
 
   const [loading, setLoading] = useState(true);
   const [candidateData, setCandidateData] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [selectedAnswers, setSelectedAnswers] = useState({}); // { [questionId]: 'A' | 'B' | ... }
-  const [savingState, setSavingState] = useState(null); // { status: 'saving'|'saved', hash?: string }
+  const [selectedAnswers, setSelectedAnswers] = useState({});
+  const [savingState, setSavingState] = useState(null);
   const [secondsRemaining, setSecondsRemaining] = useState(7200);
+
+  // Active tab on the left problem panel
+  const [activeLeftTab, setActiveLeftTab] = useState('description'); // 'description' | 'editorial' | 'submissions'
 
   // Failover & Reconnection Overlay State
   const [isReconnecting, setIsReconnecting] = useState(false);
@@ -38,12 +44,10 @@ export default function CandidateExamPage() {
   const loadCandidateSession = useCallback(async () => {
     try {
       setLoading(true);
-      // Fetch questions
       const qRes = await fetch(`${API}/api/exam/questions`);
       const qData = await qRes.json();
       setQuestions(qData);
 
-      // Fetch candidate session & previous checkpoints
       const cRes = await fetch(`${API}/api/candidates/${candidateId}/session`);
       if (!cRes.ok) throw new Error(`Candidate ${candidateId} not found`);
       const cData = await cRes.json();
@@ -52,7 +56,6 @@ export default function CandidateExamPage() {
       centreRef.current = cData.session?.centre_id || cData.candidate?.centre_id;
       setSelectedAnswers(cData.answersMap || {});
 
-      // Resume at saved current_question
       const savedQ = (cData.session?.current_question || 1) - 1;
       const validIndex = Math.max(0, Math.min(savedQ, qData.length - 1));
       setCurrentQuestionIndex(validIndex);
@@ -73,7 +76,7 @@ export default function CandidateExamPage() {
 
   // ── 2. Timer Countdown ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (isReconnecting) return; // Pause timer during power outage / failover
+    if (isReconnecting) return;
     const interval = setInterval(() => {
       setSecondsRemaining(prev => (prev > 0 ? prev - 1 : 0));
     }, 1000);
@@ -82,54 +85,31 @@ export default function CandidateExamPage() {
 
   // ── 3. Socket.IO Listeners for Failover & Reconnection ──────────────────────
   useEffect(() => {
-    // A centre has failed and failover started
     const onFailoverStarted = (data) => {
       const myCentre = centreRef.current;
       if (data.failedCentreId === myCentre) {
         setIsReconnecting(true);
         setReconnectNotice({
           failedCentreId: data.failedCentreId,
-          message: `Workstation severed: Centre "${data.failedCentreId}" suffered critical outage. Re-attaching session to backup centre...`
+          message: `Connection severed: Centre "${data.failedCentreId}" suffered critical outage. Re-attaching session to backup node...`
         });
       }
     };
 
-    // Candidate session re-attached to new centre
     const onSessionMigrated = (data) => {
       if (data.candidateId === candidateId || data.candidateId === candidateData?.candidate?.id) {
         centreRef.current = data.newCentreId;
-
-        // Update local session state
-        setCandidateData(prev => ({
-          ...prev,
-          session: {
-            ...prev?.session,
-            centre_id: data.newCentreId,
-            node_id: data.newNodeId
-          },
-          centre: {
-            ...prev?.centre,
-            id: data.newCentreId,
-            name: `Backup Centre (${data.newCentreId})`
-          }
-        }));
-
-        setReconnectNotice(null);
-        setFailoverResolvedNotice({
-          oldCentre: data.oldCentreId,
-          newCentre: data.newCentreId,
-          newNode: data.newNodeId
-        });
-
-        // Dismiss reconnection overlay smoothly
         setTimeout(() => {
           setIsReconnecting(false);
+          setReconnectNotice(null);
+          setFailoverResolvedNotice({
+            oldCentre: data.oldCentreId,
+            newCentre: data.newCentreId,
+            newNode: data.newNodeId,
+            timestamp: new Date().toLocaleTimeString()
+          });
+          loadCandidateSession();
         }, 1200);
-
-        // Clear resolved notice after a few seconds
-        setTimeout(() => {
-          setFailoverResolvedNotice(null);
-        }, 5000);
       }
     };
 
@@ -140,14 +120,13 @@ export default function CandidateExamPage() {
       socket.off('failover:started', onFailoverStarted);
       socket.off('session:migrated', onSessionMigrated);
     };
-  }, [candidateId, candidateData]);
+  }, [candidateId, candidateData, loadCandidateSession]);
 
   // ── 4. Immediate Server-Side Checkpointing on Option Select ─────────────────
   const handleSelectOption = async (optionKey) => {
     const activeQuestion = questions[currentQuestionIndex];
     if (!activeQuestion || !candidateData) return;
 
-    // Optimistic UI update
     setSelectedAnswers(prev => ({
       ...prev,
       [activeQuestion.id]: optionKey
@@ -183,7 +162,6 @@ export default function CandidateExamPage() {
     }
   };
 
-  // Demo: Trigger power failure for this candidate's centre
   const handleSimulateOutage = async () => {
     try {
       setSimulatingFault(true);
@@ -209,8 +187,11 @@ export default function CandidateExamPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center font-mono text-sm">
-        Initializing workstation secure session...
+      <div className="min-h-screen flex items-center justify-center font-mono text-sm dark:bg-[#1a1a1a] dark:text-gray-300 bg-[#f7f7f8] text-gray-700">
+        <div className="flex items-center gap-3">
+          <span className="w-4 h-4 border-2 border-[#ffa116] border-t-transparent rounded-full animate-spin" />
+          <span>Loading LeetCode Assessment Workspace...</span>
+        </div>
       </div>
     );
   }
@@ -220,296 +201,391 @@ export default function CandidateExamPage() {
   const answeredCount = Object.keys(selectedAnswers).length;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col relative select-none">
-      {/* ── Top Exam Navigation Bar ─────────────────────────────────────────── */}
-      <header className="bg-slate-900 border-b border-slate-800 px-6 py-3.5 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30 shadow-md">
-        {/* Exam Title & Candidate Info */}
-        <div className="flex items-center gap-4">
-          <div className="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center font-black text-blue-400">
-            EG
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-bold text-white tracking-tight">National Computer-Based Assessment</h1>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                ACTIVE SESSION
+    <div className="min-h-screen flex flex-col select-none transition-colors duration-150 dark:bg-[#1a1a1a] bg-[#f0f0f0] dark:text-[#eff1f6] text-[#262626]">
+      {/* ── Top Navbar ──────────────────────────────────────────────────────── */}
+      <LeetCodeNavbar
+        activeCandidates={200}
+        extraRight={
+          <div className="flex items-center gap-2">
+            {/* Outage Simulation Trigger */}
+            <button
+              onClick={handleSimulateOutage}
+              disabled={simulatingFault || isReconnecting}
+              title="Simulate hardware outage on this centre to trigger automated zero-loss failover"
+              className="px-2.5 py-1 rounded-md text-[11px] font-medium transition border flex items-center gap-1.5 shadow-2xs active:scale-95
+                dark:bg-[#333333] dark:hover:bg-[#3e3e3e] dark:text-rose-400 dark:border-rose-900/40
+                bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-200"
+            >
+              <span>⚡</span>
+              <span className="hidden sm:inline">Simulate Outage ({candidateData?.session?.centre_id})</span>
+            </button>
+
+            {/* Assessment Timer */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono border
+              dark:bg-[#1e1e1e] dark:border-[#383838] dark:text-gray-200 bg-white border-gray-200 text-gray-800">
+              <span className="text-gray-400">⏱</span>
+              <span className={`font-semibold tabular-nums ${secondsRemaining < 300 ? 'text-[#ff375f] animate-pulse' : ''}`}>
+                {formatTimer(secondsRemaining)}
               </span>
             </div>
-            <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5 font-mono">
-              <span>Candidate: <strong className="text-white">{candidateData?.candidate?.name}</strong> ({candidateData?.candidate?.id})</span>
-              <span>•</span>
-              <span>Roll: <strong className="text-slate-300">{candidateData?.candidate?.roll_number}</strong></span>
-              <span>•</span>
-              <span>Centre: <strong className="text-purple-300">{candidateData?.session?.centre_id}</strong> ({candidateData?.session?.node_id})</span>
-            </div>
           </div>
-        </div>
-
-        {/* Timer, Status & Demo Fault Button */}
-        <div className="flex items-center gap-3">
-          {/* Simulated Fault Trigger Button */}
-          <button
-            onClick={handleSimulateOutage}
-            disabled={simulatingFault || isReconnecting}
-            className="px-3 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-700/60 text-xs font-bold transition flex items-center gap-1.5 shadow-sm active:scale-95"
-            title="Inject a power failure on this centre to demonstrate automated session failover & resume"
-          >
-            <span>⚡</span>
-            <span>Simulate Outage at {candidateData?.session?.centre_id}</span>
-          </button>
-
-          {/* Timer Display */}
-          <div className="flex items-center gap-2 bg-slate-950 px-3.5 py-1.5 rounded-xl border border-slate-800 font-mono">
-            <span className="text-slate-500 text-xs">⏱</span>
-            <span className={`text-sm font-bold tabular-nums ${secondsRemaining < 300 ? 'text-rose-400 animate-pulse' : 'text-slate-200'}`}>
-              {formatTimer(secondsRemaining)}
-            </span>
-          </div>
-
-          {/* Links back to Admin / Ledger */}
-          <div className="flex items-center gap-1.5 text-xs font-semibold">
-            <Link to="/admin" className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white transition">
-              Admin
-            </Link>
-            <Link to="/ledger" className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-purple-300 hover:text-white transition">
-              Ledger
-            </Link>
-          </div>
-        </div>
-      </header>
+        }
+      />
 
       {/* ── Failover Resumed Alert Banner ───────────────────────────────────── */}
       {failoverResolvedNotice && (
-        <div className="bg-emerald-950/80 border-b border-emerald-600/70 px-6 py-2.5 flex items-center justify-between text-xs text-emerald-200 animate-fadeIn">
+        <div className="border-b px-4 py-2 flex items-center justify-between text-xs transition-colors
+          dark:bg-emerald-950/50 dark:border-emerald-700/60 dark:text-emerald-300
+          bg-emerald-50 border-emerald-300 text-emerald-800">
           <div className="flex items-center gap-2 font-mono">
-            <span className="text-base">✓</span>
+            <span className="text-sm font-bold text-[#00b8a3]">✓</span>
             <span>
-              <strong>FAILOVER RE-ATTACHED:</strong> Migrated from <strong>{failoverResolvedNotice.oldCentre}</strong> to <strong>{failoverResolvedNotice.newCentre}</strong> ({failoverResolvedNotice.newNode}). All answers preserved. Resuming examination at Question {currentQuestionIndex + 1}.
+              <strong>FAILOVER RE-ATTACHED:</strong> Migrated from <strong>{failoverResolvedNotice.oldCentre}</strong> to <strong>{failoverResolvedNotice.newCentre}</strong> ({failoverResolvedNotice.newNode}). Zero progress lost.
             </span>
           </div>
-          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40">
+          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#00b8a3]/20 border border-[#00b8a3]/40">
             0 ANSWERS LOST
           </span>
         </div>
       )}
 
-      {/* ── Main Exam Layout: Question Area (Left) + Palette (Right) ────────── */}
-      <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-6 flex flex-col lg:flex-row gap-6">
-        {/* Left: Active Question Container */}
-        <div className="flex-1 flex flex-col bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl">
-          {/* Question Metadata & Checkpoint Status */}
-          <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/30">
-                Question {currentQuestionIndex + 1} of {questions.length}
-              </span>
-              <span className="text-xs font-medium text-slate-400">
-                Category: {activeQuestion?.category || 'General'}
-              </span>
+      {/* ── Main LeetCode Workspace Split Pane ───────────────────────────────── */}
+      <main className="flex-1 p-2.5 flex flex-col lg:flex-row gap-2.5 overflow-hidden max-w-[1920px] mx-auto w-full">
+        
+        {/* ── LEFT PANE: Problem Description & Editorial ──────────────────────── */}
+        <section className="flex-1 flex flex-col rounded-lg border overflow-hidden shadow-xs transition-colors
+          dark:bg-[#282828] dark:border-[#3e3e3e] bg-white border-gray-200 min-h-[500px]">
+          
+          {/* Top Panel Tabs (LeetCode exact tab style) */}
+          <div className="h-9 border-b flex items-center justify-between px-3 text-[12px] select-none
+            dark:bg-[#222222] dark:border-[#383838] bg-gray-50 border-gray-200">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setActiveLeftTab('description')}
+                className={`px-3 py-1 rounded-t-md font-medium flex items-center gap-1.5 transition ${
+                  activeLeftTab === 'description'
+                    ? 'dark:bg-[#282828] dark:text-white text-gray-900 bg-white border-t-2 border-[#ffa116]'
+                    : 'dark:text-gray-400 dark:hover:text-gray-200 text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                <span>📄</span>
+                <span>Description</span>
+              </button>
+
+              <button
+                onClick={() => setActiveLeftTab('editorial')}
+                className={`px-3 py-1 rounded-t-md font-medium flex items-center gap-1.5 transition ${
+                  activeLeftTab === 'editorial'
+                    ? 'dark:bg-[#282828] dark:text-white text-gray-900 bg-white border-t-2 border-[#ffa116]'
+                    : 'dark:text-gray-400 dark:hover:text-gray-200 text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                <span>💡</span>
+                <span>Editorial & Hints</span>
+              </button>
+
+              <button
+                onClick={() => setActiveLeftTab('submissions')}
+                className={`px-3 py-1 rounded-t-md font-medium flex items-center gap-1.5 transition ${
+                  activeLeftTab === 'submissions'
+                    ? 'dark:bg-[#282828] dark:text-white text-gray-900 bg-white border-t-2 border-[#ffa116]'
+                    : 'dark:text-gray-400 dark:hover:text-gray-200 text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                <span>⏱️</span>
+                <span>Submissions & Ledger</span>
+              </button>
             </div>
 
-            {/* Checkpoint Status Indicator */}
-            <div className="text-xs font-mono flex items-center gap-2">
+            {/* Status indicator */}
+            <div className="text-[11px] font-mono flex items-center gap-1.5">
               {savingState?.status === 'saving' && (
-                <span className="text-amber-400 flex items-center gap-1.5 animate-pulse">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
-                  Checkpointing to server...
+                <span className="text-[#ffa116] flex items-center gap-1 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#ffa116]" />
+                  Saving...
                 </span>
               )}
               {savingState?.status === 'saved' && (
-                <span className="text-emerald-400 flex items-center gap-1.5">
-                  <span className="text-xs">✓</span>
-                  <span>Checkpoint saved</span>
-                  <span className="text-slate-500 text-[10px] font-mono">
-                    (⛓ {savingState.hash?.substring(0, 8)}…)
+                <span className="text-[#00b8a3] flex items-center gap-1">
+                  <span>✓</span>
+                  <span>Checkpoint #{currentQuestionIndex + 1} Saved</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Left Panel Body */}
+          <div className="flex-1 p-5 overflow-y-auto text-[14px] leading-relaxed">
+            {activeLeftTab === 'description' && (
+              <div className="flex flex-col gap-4">
+                {/* Title */}
+                <h1 className="text-[18px] font-semibold tracking-tight dark:text-white text-gray-900">
+                  {currentQuestionIndex + 1}. {activeQuestion?.text}
+                </h1>
+
+                {/* Badges bar */}
+                <div className="flex flex-wrap items-center gap-2 pt-1 pb-3 border-b dark:border-[#383838] border-gray-200">
+                  {/* Difficulty Tag */}
+                  <span className="text-[12px] font-medium px-2.5 py-0.5 rounded-full bg-[#ffa116]/15 text-[#ffa116]">
+                    Medium
                   </span>
-                </span>
-              )}
-              {!savingState && (
-                <span className="text-slate-500 text-[11px]">
-                  State saved to server
-                </span>
-              )}
-            </div>
-          </div>
 
-          {/* Question Text */}
-          <div className="py-6">
-            <h2 className="text-base sm:text-lg font-semibold text-slate-100 leading-relaxed">
-              {activeQuestion?.text}
-            </h2>
-          </div>
+                  {/* Category Pill */}
+                  <span className="text-[12px] px-2.5 py-0.5 rounded-full border dark:bg-[#333333] dark:border-[#444444] dark:text-gray-300 bg-gray-100 border-gray-200 text-gray-700">
+                    {activeQuestion?.category || 'Algorithms'}
+                  </span>
 
-          {/* Options List */}
-          <div className="space-y-3 flex-1">
-            {activeQuestion && Object.entries(activeQuestion.options).map(([optKey, optText]) => {
-              const isSelected = selectedOption === optKey;
-              return (
-                <button
-                  key={optKey}
-                  onClick={() => handleSelectOption(optKey)}
-                  className={`w-full text-left p-4 rounded-xl border transition-all flex items-center gap-4 ${
-                    isSelected
-                      ? 'bg-blue-600/20 border-blue-500 text-white shadow-md shadow-blue-950/40'
-                      : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-900'
-                  }`}
-                >
-                  <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs border transition ${
-                      isSelected
-                        ? 'bg-blue-500 text-white border-blue-400'
-                        : 'bg-slate-800 text-slate-400 border-slate-700'
-                    }`}
-                  >
-                    {optKey}
+                  {/* Zero-Loss Checkpoint Guarantee */}
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-md border flex items-center gap-1
+                    dark:bg-[#00b8a3]/10 dark:border-[#00b8a3]/30 dark:text-[#00b8a3]
+                    bg-emerald-50 border-emerald-200 text-emerald-700">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#00b8a3]" />
+                    Zero-Loss Guarantee
+                  </span>
+                </div>
+
+                {/* Problem Explanatory Text */}
+                <div className="text-[14px] dark:text-gray-200 text-gray-800 space-y-3">
+                  <p>
+                    Select the option that represents the strict algorithmic definition and memory ordering semantics of this fundamental assessment concept.
+                  </p>
+                  <p className="text-xs dark:text-gray-400 text-gray-500">
+                    Your choice is immediately synced server-side with an immutable SHA-256 cryptographic hash. Even in the event of workstation failure or building power cut, your progress will resume seamlessly.
+                  </p>
+                </div>
+
+                {/* Candidate & Workstation Constraints Box (styled like LeetCode constraints) */}
+                <div className="mt-4 p-3.5 rounded-lg border font-mono text-[12px] space-y-1.5
+                  dark:bg-[#202020] dark:border-[#383838] bg-gray-50 border-gray-200">
+                  <span className="font-sans font-semibold text-[11px] uppercase tracking-wider block dark:text-gray-400 text-gray-500">
+                    Workstation Constraints &amp; Context
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-[11px]">
+                    <div>Candidate: <strong className="dark:text-white text-gray-900">{candidateData?.candidate?.name}</strong></div>
+                    <div>Roll: <strong className="dark:text-gray-300 text-gray-700">{candidateData?.candidate?.roll_number}</strong></div>
+                    <div>Centre Node: <strong className="text-[#ffa116]">{candidateData?.session?.centre_id}</strong> ({candidateData?.session?.node_id})</div>
+                    <div>Checkpoint Engine: <strong className="text-[#00b8a3]">TrustLedger SHA-256</strong></div>
                   </div>
-                  <span className="text-sm font-medium">{optText}</span>
-                </button>
-              );
-            })}
+                </div>
+              </div>
+            )}
+
+            {activeLeftTab === 'editorial' && (
+              <div className="space-y-4">
+                <h3 className="font-semibold text-base dark:text-white text-gray-900">Editorial Analysis</h3>
+                <p className="dark:text-gray-300 text-gray-700">
+                  Computer-based assessment questions evaluate fundamental system design, runtime complexity, and data organization principles.
+                </p>
+                <div className="p-3 rounded-lg border dark:bg-[#202020] dark:border-[#383838] bg-amber-50/50 border-amber-200 text-xs text-amber-800 dark:text-amber-200">
+                  💡 <strong>Tip:</strong> In Last-In First-Out (LIFO), the last element added to the structure must be the first one to be removed, identical to function call execution stacks in computer architecture.
+                </div>
+              </div>
+            )}
+
+            {activeLeftTab === 'submissions' && (
+              <div className="space-y-3 font-mono text-xs">
+                <h3 className="font-sans font-semibold text-base dark:text-white text-gray-900">Session Checkpoints</h3>
+                <div className="space-y-2">
+                  {Object.entries(selectedAnswers).map(([qId, ans]) => (
+                    <div key={qId} className="p-2.5 rounded border flex items-center justify-between
+                      dark:bg-[#202020] dark:border-[#383838] bg-gray-50 border-gray-200">
+                      <div>
+                        <span className="font-semibold text-[#ffa116]">Question {qId}: </span>
+                        <span>Option {ans}</span>
+                      </div>
+                      <span className="text-[#00b8a3] text-[11px]">✓ Checkpointed</span>
+                    </div>
+                  ))}
+                  {Object.keys(selectedAnswers).length === 0 && (
+                    <p className="text-gray-400">No submissions recorded yet for this session.</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
+        </section>
 
-          {/* Navigation Controls */}
-          <div className="pt-6 border-t border-slate-800 flex items-center justify-between mt-4">
-            <button
-              onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
-              disabled={currentQuestionIndex === 0}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold transition"
-            >
-              ← Previous
-            </button>
-
-            <span className="text-xs text-slate-500 font-mono">
-              Answered: <strong className="text-slate-300">{answeredCount}</strong> / {questions.length}
-            </span>
-
-            <button
-              onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))}
-              disabled={currentQuestionIndex === questions.length - 1}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-white transition shadow-sm"
-            >
-              Next Question →
-            </button>
-          </div>
-        </div>
-
-        {/* Right: Question Palette & Candidate Profile Card */}
-        <aside className="w-full lg:w-80 flex flex-col gap-5">
-          {/* Question Palette */}
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center justify-between">
-              <span>Question Palette</span>
-              <span className="font-mono text-slate-500">{answeredCount}/{questions.length}</span>
-            </h3>
-
-            <div className="grid grid-cols-5 gap-2">
-              {questions.map((q, idx) => {
-                const isAnswered = !!selectedAnswers[q.id];
-                const isCurrent = idx === currentQuestionIndex;
-
-                let btnStyle = 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700';
-                if (isCurrent) {
-                  btnStyle = 'bg-blue-600 border-blue-400 text-white font-bold ring-2 ring-blue-500/50';
-                } else if (isAnswered) {
-                  btnStyle = 'bg-emerald-950/60 border-emerald-600/60 text-emerald-300 font-semibold';
-                }
-
-                return (
-                  <button
-                    key={q.id}
-                    onClick={() => setCurrentQuestionIndex(idx)}
-                    className={`h-9 rounded-lg border text-xs font-mono transition flex items-center justify-center ${btnStyle}`}
-                  >
-                    {idx + 1}
-                  </button>
-                );
-              })}
+        {/* ── RIGHT PANE: Code / Answer Selection Workspace ───────────────────── */}
+        <section className="flex-1 flex flex-col rounded-lg border overflow-hidden shadow-xs transition-colors
+          dark:bg-[#282828] dark:border-[#3e3e3e] bg-white border-gray-200 min-h-[500px]">
+          
+          {/* Top Workspace Bar (LeetCode Language & Question Palette Header) */}
+          <div className="h-9 border-b flex items-center justify-between px-3 text-[12px] select-none
+            dark:bg-[#222222] dark:border-[#383838] bg-gray-50 border-gray-200">
+            <div className="flex items-center gap-2 font-mono">
+              <span className="text-[11px] px-2 py-0.5 rounded font-sans font-medium dark:bg-[#333] dark:text-gray-200 bg-gray-200 text-gray-800">
+                Single Choice
+              </span>
+              <span className="text-gray-400">•</span>
+              <span className="text-xs dark:text-gray-300 text-gray-600">
+                Answered: <strong className="text-[#00b8a3]">{answeredCount}</strong> / {questions.length}
+              </span>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded bg-emerald-500/40 border border-emerald-500" /> Answered
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded bg-blue-600 border border-blue-400" /> Current
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded bg-slate-950 border border-slate-800" /> Pending
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-gray-400 font-mono">
+                {savingState?.hash ? `Hash: ${savingState.hash.slice(0, 10)}...` : 'Status: Ready'}
               </span>
             </div>
           </div>
 
-          {/* Session Resilience Guarantee Card */}
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 text-xs space-y-2.5 shadow-lg">
-            <h4 className="font-bold text-white flex items-center gap-1.5">
-              <span>🛡️</span>
-              <span>Continuity Guarantee</span>
-            </h4>
-            <p className="text-slate-400 leading-relaxed text-[11px]">
-              Every selected answer is immediately committed to SQLite server-side and recorded in the SHA-256 TrustLedger.
-            </p>
-            <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/80 space-y-1 font-mono text-[10px] text-slate-400">
-              <div className="flex justify-between">
-                <span>Checkpoint Mode:</span>
-                <span className="text-emerald-400 font-semibold">Immediate WAL</span>
+          {/* Right Workspace Body: Options A, B, C, D */}
+          <div className="flex-1 p-5 flex flex-col justify-between overflow-y-auto">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Select Correct Answer:
+                </span>
+                <span className="text-[11px] font-mono text-gray-400">
+                  Question {currentQuestionIndex + 1}
+                </span>
               </div>
-              <div className="flex justify-between">
-                <span>Failover Target:</span>
-                <span className="text-purple-300 font-semibold">Auto-Healthiest</span>
+
+              {/* Multiple Choice Options List */}
+              <div className="space-y-3">
+                {activeQuestion && activeQuestion.options && Object.entries(activeQuestion.options).map(([optKey, optText]) => {
+                  const isSelected = selectedOption === optKey;
+                  return (
+                    <button
+                      key={optKey}
+                      onClick={() => handleSelectOption(optKey)}
+                      className={`w-full text-left p-3.5 rounded-lg border transition-all flex items-center gap-3.5 group ${
+                        isSelected
+                          ? 'dark:bg-[#00b8a3]/10 dark:border-[#00b8a3] dark:text-white bg-emerald-50 border-[#00b8a3] text-gray-900 shadow-xs'
+                          : 'dark:bg-[#202020] dark:border-[#383838] dark:hover:bg-[#2c2c2c] dark:text-gray-200 bg-white border-gray-200 hover:bg-gray-50 text-gray-800'
+                      }`}
+                    >
+                      {/* Option letter pill */}
+                      <span className={`w-7 h-7 rounded-md flex items-center justify-center font-mono font-bold text-xs transition ${
+                        isSelected
+                          ? 'bg-[#00b8a3] text-white shadow-xs'
+                          : 'dark:bg-[#333] dark:text-gray-300 dark:group-hover:bg-[#444] bg-gray-100 text-gray-600 group-hover:bg-gray-200'
+                      }`}>
+                        {optKey}
+                      </span>
+
+                      {/* Option text */}
+                      <span className="text-[14px] flex-1 font-medium">
+                        {optText}
+                      </span>
+
+                      {/* Checkmark indicator */}
+                      {isSelected && (
+                        <span className="text-[#00b8a3] font-bold text-sm">
+                          ✓
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
-              <div className="flex justify-between">
-                <span>Data Loss Risk:</span>
-                <span className="text-emerald-400 font-semibold">0 Answers</span>
+            </div>
+
+            {/* ── Question Palette Slider (1 - 10) ─────────────────────────── */}
+            <div className="mt-6 pt-4 border-t dark:border-[#383838] border-gray-200">
+              <div className="flex items-center justify-between mb-2.5 text-[11px] font-mono dark:text-gray-400 text-gray-500">
+                <span>QUESTION PALETTE:</span>
+                <span className="flex items-center gap-3">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#00b8a3]" /> Answered</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#ffa116]" /> Current</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full dark:bg-[#444] bg-gray-300" /> Pending</span>
+                </span>
+              </div>
+
+              <div className="grid grid-cols-10 gap-1.5">
+                {questions.map((q, idx) => {
+                  const isCurrent = idx === currentQuestionIndex;
+                  const isAnswered = !!selectedAnswers[q.id];
+                  return (
+                    <button
+                      key={q.id}
+                      onClick={() => setCurrentQuestionIndex(idx)}
+                      className={`h-8 rounded-md font-mono text-xs font-semibold transition flex items-center justify-center border ${
+                        isCurrent
+                          ? 'border-[#ffa116] text-[#ffa116] dark:bg-[#ffa116]/10 bg-amber-50 shadow-xs'
+                          : isAnswered
+                          ? 'border-[#00b8a3] text-[#00b8a3] dark:bg-[#00b8a3]/10 bg-emerald-50'
+                          : 'dark:bg-[#202020] dark:border-[#383838] dark:text-gray-400 dark:hover:bg-[#2e2e2e] bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                      }`}
+                    >
+                      {idx + 1}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
-        </aside>
-      </div>
 
-      {/* ── 5. Reconnecting Modal Overlay (When Centre Outage Occurs) ───────── */}
+          {/* ── Bottom LeetCode Action Bar ──────────────────────────────────── */}
+          <div className="h-12 border-t flex items-center justify-between px-4 select-none
+            dark:bg-[#222222] dark:border-[#383838] bg-gray-50 border-gray-200">
+            {/* Left navigators */}
+            <div className="flex items-center gap-2">
+              <button
+                disabled={currentQuestionIndex === 0}
+                onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
+                className="px-3 py-1.5 rounded-md text-xs font-medium border transition disabled:opacity-40
+                  dark:bg-[#333333] dark:border-[#404040] dark:hover:bg-[#3e3e3e] dark:text-gray-200
+                  bg-white border-gray-300 hover:bg-gray-100 text-gray-700"
+              >
+                ← Prev
+              </button>
+              <button
+                disabled={currentQuestionIndex === questions.length - 1}
+                onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))}
+                className="px-3 py-1.5 rounded-md text-xs font-medium border transition disabled:opacity-40
+                  dark:bg-[#333333] dark:border-[#404040] dark:hover:bg-[#3e3e3e] dark:text-gray-200
+                  bg-white border-gray-300 hover:bg-gray-100 text-gray-700"
+              >
+                Next →
+              </button>
+            </div>
+
+            {/* Right: Submit Button in signature LeetCode Green */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  if (currentQuestionIndex < questions.length - 1) {
+                    setCurrentQuestionIndex(prev => prev + 1);
+                  }
+                }}
+                className="px-4 py-1.5 rounded-md text-xs font-semibold text-white bg-[#00b8a3] hover:bg-[#00a390] transition shadow-xs flex items-center gap-1.5 active:scale-95"
+              >
+                <span>Save &amp; Continue</span>
+                <span>✓</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {/* ── Outage / Failover Reconnecting Modal ─────────────────────────────── */}
       {isReconnecting && (
-        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-rose-800/80 rounded-3xl max-w-lg w-full p-8 text-center space-y-6 shadow-2xl shadow-rose-950/50 animate-scaleUp">
-            {/* Spinning Radar Animation */}
-            <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full border-4 border-rose-500/20 animate-ping" />
-              <div className="w-16 h-16 rounded-full bg-rose-600/20 border-2 border-rose-500 flex items-center justify-center text-3xl">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="max-w-md w-full rounded-xl border p-6 shadow-2xl transition-colors
+            dark:bg-[#282828] dark:border-[#3e3e3e] dark:text-white bg-white border-gray-200 text-gray-900">
+            <div className="flex items-center gap-3 pb-3 border-b dark:border-[#383838] border-gray-200">
+              <span className="w-8 h-8 rounded-lg bg-rose-500/20 text-[#ff375f] flex items-center justify-center text-lg font-bold">
                 ⚡
+              </span>
+              <div>
+                <h3 className="font-bold text-sm tracking-tight">Workstation Outage Detected</h3>
+                <p className="text-xs dark:text-gray-400 text-gray-500">Autonomous failover engine in progress</p>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <h3 className="text-lg font-bold text-white tracking-tight">
-                Workstation Reconnecting...
-              </h3>
-              <p className="text-xs text-rose-300 font-medium">
-                {reconnectNotice?.message || 'Centre experienced a critical power outage. ExamGuard Continuity Engine is activating.'}
+            <div className="py-4 space-y-3">
+              <p className="text-xs leading-relaxed dark:text-gray-300 text-gray-700">
+                {reconnectNotice?.message || 'Centre node severed. Re-routing session to healthiest available backup centre...'}
               </p>
-            </div>
-
-            {/* Checkpoint Assurance Details */}
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-left space-y-2 font-mono text-xs">
-              <div className="flex items-center justify-between text-slate-300">
-                <span>Session Checkpoint:</span>
-                <span className="text-emerald-400 font-bold">✓ Preserved in DB</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span>Answers Lost:</span>
-                <span className="text-emerald-400 font-bold">0 (Zero Data Loss)</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span>Resume Position:</span>
-                <span className="text-blue-400 font-bold">Question {currentQuestionIndex + 1}</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span>Timer Status:</span>
-                <span className="text-amber-300 font-bold">Paused during failover</span>
+              <div className="flex items-center gap-2.5 text-xs font-mono text-[#ffa116]">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#ffa116] animate-ping" />
+                <span>Zero answers lost. Preserving timer and checkpoints...</span>
               </div>
             </div>
 
-            <div className="flex items-center justify-center gap-2 text-xs text-slate-400 font-mono">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-              <span>Re-attaching to healthiest backup centre...</span>
+            <div className="pt-2 text-[11px] font-mono text-center text-gray-400">
+              ExamGuard TrustLedger Checkpointing Active
             </div>
           </div>
         </div>
